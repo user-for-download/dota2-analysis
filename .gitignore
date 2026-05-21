@@ -1,9 +1,11 @@
 *.exe
+*.test
+*.out
 .DS_Store
 .env
 .env.local
-coverage.out
-.idea
+.vscode/
+.idea/
 dump_out/
 *.json
 .dumperrc
@@ -12,3 +14,4 @@ prc.json
 .opencode
 /bin/
 /tmp/
+deploy/proxy.txt

@@ -1,0 +1,22 @@
+# ──────── dota2-analysis monorepo CODEOWNERS ────────
+
+# Core — both teams review
+/go-core/domain/             @both-teams
+/go-core/bootstrap/          @infra-owner
+/go-core/migrator/           @infra-owner
+/go-core/schema/             @schema-owner @both-teams
+/go-core/contracttest/       @both-teams
+/go-core/config/             @infra-owner
+
+# Module-specific
+/go-analysis/                @analytics-team
+/go-ingestion/               @ingestion-team
+
+# Shared deploy
+/deploy/                     @infra-owner
+/docker-compose.yml          @infra-owner
+/Makefile                    @infra-owner
+/go.work                     @infra-owner
+
+# CI
+/.github/                    @infra-owner
