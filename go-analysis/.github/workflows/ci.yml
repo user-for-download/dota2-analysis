@@ -6,9 +6,6 @@ on:
   pull_request:
     branches: [main]
 
-env:
-  GOFLAGS: -mod=vendor
-
 jobs:
   test:
     runs-on: ubuntu-latest

@@ -8,13 +8,13 @@ RUN apk add --no-cache git ca-certificates tzdata
 
 WORKDIR /src
 
-# Use vendor directory for reproducible builds.
-COPY go.mod go.sum ./
-COPY vendor/ ./vendor/
+# Use GOPROXY for module resolution.
+# The go.work file at the repo root wires go-core via replace directive.
+COPY go.mod go.sum go.work* ./
 
 ENV CGO_ENABLED=0 \
     GOOS=linux \
-    GOFLAGS="-trimpath -mod=vendor"
+    GOFLAGS="-trimpath"
 
 ARG VERSION=dev
 ARG COMMIT=unknown

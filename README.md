@@ -80,7 +80,7 @@ cd go-ingestion && make build
 cd go-analysis && make build
 ```
 
-Images use `-mod=vendor` for reproducible builds without external module proxy access.
+Images use GOPROXY for module resolution. The `go.work` file at the repo root wires the local `go-core` module via a `replace` directive. No `vendor/` directories are committed.
 
 ## Module Dependencies
 
@@ -89,7 +89,7 @@ go-ingestion ──requires──> go-core
 go-analysis  ──requires──> go-core
 ```
 
-Both projects vendor `go-core` via `go mod vendor`. The `replace` directive in `go.mod` is for local development only — Docker builds use vendor exclusively.
+Both projects depend on `go-core` via `go.mod replace` directives and the `go.work` workspace. Docker builds resolve dependencies via GOPROXY at build time.
 
 ## Schema Contract
 

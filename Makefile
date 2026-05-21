@@ -9,7 +9,7 @@ COMPOSE := docker compose -p $(PROJECT_NAME) -f $(COMPOSE_FILE)
 
 .DEFAULT_GOAL := help
 .PHONY: help build build-ingestion build-analysis \
-        vendor vendor-ingestion vendor-analysis \
+        vendor \
         up upd down downv logs \
         infra migrate \
         ingestion analysis \
@@ -23,20 +23,16 @@ help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | sort | \
 	  awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
 
-# ───── Vendor ─────
-vendor-ingestion: ## Vendor go-ingestion dependencies
-	cd go-ingestion && go mod vendor
-
-vendor-analysis: ## Vendor go-analysis dependencies
-	cd go-analysis && go mod vendor
-
-vendor: vendor-ingestion vendor-analysis ## Vendor all dependencies
+# ───── Vendor (no-op — vendoring not used) ─────
+vendor: ## No-op — see README for module resolution
+	@echo "This monorepo does not use vendor/ directories."
+	@echo "Module resolution: go.work + replace directives + GOPROXY."
 
 # ───── Build ─────
-build-ingestion: vendor-ingestion ## Build all ingestion Docker images
+build-ingestion: ## Build all ingestion Docker images
 	cd go-ingestion && docker buildx bake --file deploy/docker-bake.hcl --load TAG=$(TAG)
 
-build-analysis: vendor-analysis ## Build all analysis Docker images
+build-analysis: ## Build all analysis Docker images
 	cd go-analysis && docker buildx bake --file deploy/docker-bake.hcl --load TAG=$(TAG)
 
 build: build-ingestion build-analysis ## Build all Docker images
@@ -93,15 +89,15 @@ publish-core: ## Tag and push go-core module (run after version bump)
 	@echo "Then remove replace directives from go.mod and run: make vendor"
 
 # ───── Validate ─────
-test: ## Run all unit tests
-	cd go-core && go test ./... -short
-	cd go-ingestion && GOFLAGS=-mod=vendor go test ./internal/... -short 2>/dev/null || true
-	cd go-analysis && GOFLAGS=-mod=vendor go test ./internal/... -short 2>/dev/null || true
+test: ## Run all unit tests (from workspace root)
+	go test ./go-core/... -short -count=1
+	go test ./go-analysis/... -short -count=1 2>/dev/null || true
+	go test ./go-ingestion/... -short -count=1 2>/dev/null || true
 
-vet: ## Run go vet on all modules
-	cd go-core && go vet ./...
-	cd go-ingestion && GOFLAGS=-mod=vendor go vet ./...
-	cd go-analysis && GOFLAGS=-mod=vendor go vet ./...
+vet: ## Run go vet on all modules (from workspace root)
+	go vet ./go-core/...
+	go vet ./go-analysis/...
+	go vet ./go-ingestion/...
 
 # ───── Danger ─────
 armageddon: ## Nuke all Docker resources for this project

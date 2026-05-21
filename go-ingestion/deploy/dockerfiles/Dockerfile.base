@@ -8,16 +8,13 @@ RUN apk add --no-cache git ca-certificates tzdata
 
 WORKDIR /src
 
-# Use vendor directory for reproducible builds.
-# go-dota2-core is vendored — no external module proxy needed.
-# Build with -mod=vendor so the replace directive in go.mod is not resolved
-# during Docker build (the vendor dir has the correct code already).
-COPY go.mod go.sum ./
-COPY vendor/ ./vendor/
+# Use go.work + GOPROXY for module resolution.
+# The go.work file at the repo root wires go-core via replace directive.
+COPY go.mod go.sum go.work* ./
 
 ENV CGO_ENABLED=0 \
     GOOS=linux \
-    GOFLAGS="-trimpath -mod=vendor"
+    GOFLAGS="-trimpath"
 
 ARG VERSION=dev
 ARG COMMIT=unknown
