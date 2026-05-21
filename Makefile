@@ -88,6 +88,16 @@ publish-core: ## Tag and push go-core module (run after version bump)
 	@echo "  cd go-analysis && go get github.com/user-for-download/go-dota2-core@$$VERSION"
 	@echo "Then remove replace directives from go.mod and run: make vendor"
 
+# ───── Schema ─────
+new-migration: ## Create a new schema migration: make new-migration NAME=add_foo
+	@test -n "$(NAME)" || (echo "Usage: make new-migration NAME=add_foo_column" && exit 1)
+	@n=$$(printf "%03d" $$(( $$(ls go-core/schema/migrations/*.sql | wc -l) + 1 ))); \
+	 f="go-core/schema/migrations/$${n}_$(NAME).sql"; \
+	 echo "-- $${n}_$(NAME).sql" > $$f; \
+	 echo "Created $$f"
+	@echo "Next: write the SQL, update contract tests, then run:"
+	@echo "  POSTGRES_TEST_DSN=... go test ./go-core/contracttest/..."
+
 # ───── Validate ─────
 test: ## Run all unit tests (from workspace root)
 	go test ./go-core/... -short -count=1
