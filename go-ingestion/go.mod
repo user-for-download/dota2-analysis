@@ -45,3 +45,4 @@ require (
 )
 
 replace github.com/user-for-download/go-dota2-core => ../go-core
+
