@@ -1,0 +1,108 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        module:
+          - path: go-core
+            import: github.com/user-for-download/go-dota2-core/...
+          - path: go-analysis
+            import: github.com/user-for-download/go-dota2-analysis/...
+          - path: go-ingestion
+            import: github.com/user-for-download/go-dota2/...
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          check-latest: true
+          cache-dependency-path: ${{ matrix.module }}/go.sum
+
+      - name: Build
+        working-directory: ${{ matrix.module }}
+        run: go build ./...
+
+      - name: Test
+        working-directory: ${{ matrix.module }}
+        run: go test -race -short -count=1 ./...
+
+      - name: Vet
+        working-directory: ${{ matrix.module }}
+        run: go vet ./...
+
+  contract-tests:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          check-latest: true
+          cache-dependency-path: go-core/go.sum
+
+      - name: Run contract tests
+        working-directory: go-core
+        env:
+          POSTGRES_TEST_DSN: postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable
+        run: go test -v -count=1 ./contracttest/...
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+          check-latest: true
+
+      - name: golangci-lint (go-core)
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+          working-directory: go-core
+
+      - name: golangci-lint (go-analysis)
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+          working-directory: go-analysis
+
+      - name: golangci-lint (go-ingestion)
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+          working-directory: go-ingestion
+
+  docker:
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    needs: [build-test, contract-tests, lint]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build all Docker images
+        run: |
+          docker buildx bake -f deploy/docker-bake.hcl --load \
+            --set *.cache-from=type=gha \
+            --set *.cache-to=type=gha,mode=max
