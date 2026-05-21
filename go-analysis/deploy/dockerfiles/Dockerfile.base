@@ -1,0 +1,33 @@
+# syntax=docker/dockerfile:1.7
+# Single-stage builder image. Service Dockerfiles FROM this to get a
+# pre-warmed module cache and the full source tree, then produce their
+# own alpine runtime stage.
+FROM golang:1.26.2-alpine
+
+RUN apk add --no-cache git ca-certificates tzdata
+
+WORKDIR /src
+
+# Use vendor directory for reproducible builds.
+COPY go.mod go.sum ./
+COPY vendor/ ./vendor/
+
+ENV CGO_ENABLED=0 \
+    GOOS=linux \
+    GOFLAGS="-trimpath -mod=vendor"
+
+ARG VERSION=dev
+ARG COMMIT=unknown
+ARG BUILD_DATE=
+ARG GOMAXPROCS=2
+ENV GOMAXPROCS=${GOMAXPROCS}
+
+COPY . .
+
+# Build all four binaries in one invocation with parallel compilation
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    mkdir -p /out && \
+    go build \
+      -ldflags="-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.buildDate=${BUILD_DATE}" \
+      -o /out/ \
+      ./cmd/api ./cmd/featurizer ./cmd/backtester ./cmd/migrator

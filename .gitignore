@@ -1,0 +1,14 @@
+*.exe
+.DS_Store
+.env
+.env.local
+coverage.out
+.idea
+dump_out/
+*.json
+.dumperrc
+proxy.txt
+prc.json
+.opencode
+/bin/
+/tmp/

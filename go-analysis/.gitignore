@@ -1,0 +1,44 @@
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+###
+.opencode
+dump_out
+prc.json
+.tmp
+###
+# Test binaries
+*.test
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Go workspace file
+go.work
+
+# Build output
+bin/
+dist/
+build/
+
+# Coverage
+*.out
+coverage.html
+
+# Vendor (if not committing dependencies)
+# vendor/
+
+# Environment
+.env
+.env.local

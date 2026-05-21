@@ -1,0 +1,194 @@
+package main
+
+import (
+	"context"
+	"log/slog"
+	"math/rand"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"github.com/user-for-download/go-dota2/internal/bootstrap"
+	"github.com/user-for-download/go-dota2/internal/config"
+	"github.com/user-for-download/go-dota2/internal/proxy/loader"
+)
+
+func main() {
+	log := bootstrap.NewLogger(slog.NewJSONHandler(os.Stdout, nil))
+
+	cfg, err := config.Load("")
+	must(log, "config", err)
+
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	shutdownTelemetry, err := bootstrap.InitTelemetry(ctx, "go-dota2-proxyloader", cfg.Telemetry.Endpoint, cfg.Telemetry.SampleRate)
+	if err != nil {
+		log.Error("init telemetry", "err", err)
+	} else if shutdownTelemetry != nil {
+		defer func() {
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			_ = shutdownTelemetry(shutdownCtx)
+		}()
+	}
+
+	deps, err := bootstrap.Core(cfg, log)
+	must(log, "core", err)
+	defer deps.Close()
+	rdb := deps.Redis.Master()
+
+	pool, err := bootstrap.ProxyPool(rdb, cfg.Proxy, log)
+	must(log, "proxy pool", err)
+
+	seedPath := cfg.Proxy.SeedFile
+	if seedPath == "" {
+		seedPath = "proxy.txt"
+	}
+	canary := cfg.Proxy.CanaryURL
+	if canary == "" {
+		canary = "https://api.ipify.org"
+	}
+
+	seed := loader.FileSource{Path: seedPath}
+	var remote loader.Source
+	if cfg.Proxy.RemoteURL != "" {
+		remote = loader.HTTPSource{
+			URL:    cfg.Proxy.RemoteURL,
+			Client: &http.Client{Timeout: 15 * time.Second},
+		}
+	}
+
+	minPoolSize := int64(cfg.Proxy.MinPoolSize)
+	if minPoolSize <= 0 {
+		minPoolSize = 20
+	}
+
+	// top-up interval: check pool size, reload only when below threshold
+	topUpInterval := cfg.Proxy.RefreshInterval
+
+	// force-refresh interval: unconditional full reload to evict degraded proxies.
+	// Reads PROXY_FORCE_REFRESH_INTERVAL; defaults to 1h. Set to 0 to disable.
+	forceInterval := getEnvDuration("PROXY_FORCE_REFRESH_INTERVAL", time.Hour)
+
+	ld, err := loader.New(pool, loader.Config{
+		Seed:   seed,
+		Remote: remote,
+		Validate: loader.Validator{
+			CanaryURL: canary,
+			Timeout:   cfg.Proxy.ValidateTimeout,
+		},
+		Parallel:   cfg.Proxy.ValidateParallel,
+		ChunkSize:  cfg.Proxy.ValidateChunkSize,
+		MinPublish: cfg.Proxy.ValidateMinPublish,
+		Logger:     log,
+	})
+	must(log, "loader", err)
+
+	// initial load
+	if err := ld.Run(ctx); err != nil {
+		if topUpInterval <= 0 && forceInterval <= 0 {
+			log.Error("initial proxy load failed (one-shot)", "err", err)
+			os.Exit(1)
+		}
+		log.Error("initial proxy load failed; will retry on schedule", "err", err)
+	} else {
+		if topUpInterval <= 0 && forceInterval <= 0 {
+			log.Info("one-shot mode; exiting")
+			return
+		}
+	}
+
+	// nextTopUpTick adds ±10% jitter to the top-up interval to avoid
+	// thundering-herd if multiple proxyloader instances run in parallel.
+	nextTopUpTick := func() time.Duration {
+		if topUpInterval <= 0 || topUpInterval < time.Second {
+			return topUpInterval
+		}
+		n := int64(topUpInterval-time.Second) / 5
+		if n <= 0 {
+			return topUpInterval
+		}
+		delta := time.Duration(rand.Int63n(n))
+		result := topUpInterval - topUpInterval/10 + delta
+		if result > topUpInterval {
+			result = topUpInterval
+		}
+		return result
+	}
+
+	// build tickers; a nil channel blocks forever, so disabled intervals are
+	// represented as a nil *time.Ticker with a nil C channel.
+	var topUpC <-chan time.Time
+	if topUpInterval > 0 {
+		t := time.NewTicker(nextTopUpTick())
+		defer t.Stop()
+		topUpC = t.C
+	}
+
+	var forceC <-chan time.Time
+	if forceInterval > 0 {
+		t := time.NewTicker(forceInterval)
+		defer t.Stop()
+		forceC = t.C
+		log.Info("force-refresh enabled", "interval", forceInterval)
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			log.Info("stopped cleanly")
+			return
+
+		case <-forceC:
+			// Unconditional reload: re-validates every proxy in the seed/remote
+			// list regardless of current pool size. This evicts proxies that are
+			// technically still in the ZSET but have degraded to near-eviction
+			// failure counts before the max-failures threshold removes them.
+			log.Info("force-refresh: reloading and re-validating full proxy list")
+			if err := ld.Run(ctx); err != nil {
+				log.Warn("force-refresh failed; keeping existing pool", "err", err)
+			}
+
+		case <-topUpC:
+			// Conditional reload: only runs when the pool has dropped below the
+			// minimum threshold. Handles sudden eviction bursts between force ticks.
+			size, err := pool.Size(ctx)
+			if err != nil {
+				log.Warn("pool size check failed", "err", err)
+				continue
+			}
+			if size >= int(minPoolSize) {
+				log.Debug("top-up: pool healthy; skipping", "size", size, "min", minPoolSize)
+				continue
+			}
+			log.Info("top-up: pool below threshold; refreshing", "size", size, "min", minPoolSize)
+			if err := ld.Run(ctx); err != nil {
+				log.Warn("top-up refresh failed; keeping existing pool", "err", err)
+			}
+		}
+	}
+}
+
+// getEnvDuration reads a duration from an environment variable.
+// Returns the provided default if the variable is unset or unparseable.
+func getEnvDuration(key string, def time.Duration) time.Duration {
+	v := os.Getenv(key)
+	if v == "" {
+		return def
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil {
+		return def
+	}
+	return d
+}
+
+func must(log *slog.Logger, what string, err error) {
+	if err != nil {
+		log.Error(what, "err", err)
+		os.Exit(1)
+	}
+}

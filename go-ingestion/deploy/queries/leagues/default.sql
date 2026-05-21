@@ -1,0 +1,3 @@
+SELECT *
+FROM leagues
+WHERE TRUE

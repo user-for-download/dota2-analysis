@@ -1,0 +1,10 @@
+# syntax=docker/dockerfile:1.7
+FROM go-dota2-base-local AS builder
+
+FROM alpine:3.20
+RUN apk add --no-cache ca-certificates tzdata && \
+    addgroup -S app && adduser -S -G app app
+COPY --from=builder /out/fetcher /app/fetcher
+USER app
+WORKDIR /app
+ENTRYPOINT ["/app/fetcher"]

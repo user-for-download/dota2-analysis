@@ -1,0 +1,37 @@
+# syntax=docker/dockerfile:1.7
+# Single-stage builder image. Service Dockerfiles FROM this to get a
+# pre-warmed module cache and the full source tree, then produce their
+# own distroless runtime stage.
+FROM golang:1.26.2-alpine
+
+RUN apk add --no-cache git ca-certificates tzdata
+
+WORKDIR /src
+
+# Use vendor directory for reproducible builds.
+# go-dota2-core is vendored — no external module proxy needed.
+# Build with -mod=vendor so the replace directive in go.mod is not resolved
+# during Docker build (the vendor dir has the correct code already).
+COPY go.mod go.sum ./
+COPY vendor/ ./vendor/
+
+ENV CGO_ENABLED=0 \
+    GOOS=linux \
+    GOFLAGS="-trimpath -mod=vendor"
+
+ARG VERSION=dev
+ARG COMMIT=unknown
+ARG BUILD_DATE=
+ARG GOMAXPROCS=2
+ENV GOMAXPROCS=${GOMAXPROCS}
+
+# Copy source after deps to leverage layer caching
+COPY . .
+
+# Build all seven binaries in one invocation with parallel compilation
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    mkdir -p /out && \
+    go build \
+      -ldflags="-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.buildDate=${BUILD_DATE}" \
+      -o /out/ \
+      ./cmd/fetcher ./cmd/parser ./cmd/enricher ./cmd/proxyloader ./cmd/migrator ./cmd/discoverer ./cmd/dlq

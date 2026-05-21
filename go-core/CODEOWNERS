@@ -1,0 +1,15 @@
+# Default owners for go-dota2-core
+* @infra-owner
+
+# Domain types — changes need both team approvals
+/domain/ @both-teams
+
+# Bootstrap and migrator — infrastructure owned
+/bootstrap/ @infra-owner
+/migrator/ @infra-owner
+
+# Schema migrations — DBA-style reviewer + both teams
+/schema/migrations/ @schema-owner @both-teams
+
+# Contract tests — both teams
+/contracttest/ @both-teams

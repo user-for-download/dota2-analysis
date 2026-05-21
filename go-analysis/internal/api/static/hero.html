@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Heroes — Dota 2 Draft Analyst</title>
+    <script src="/static/js/htmx.min.js"></script>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <nav>
+        <a href="/">Home</a>
+        <a href="/draft">Draft Assistant</a>
+        <a href="/teams">Teams</a>
+        <a href="/heroes">Heroes</a>
+    </nav>
+    <main>
+        <h1>Hero Analysis</h1>
+
+        <div class="card">
+            <h2>Synergy Partners</h2>
+            <form hx-get="/v1/heroes/{id}/synergy" hx-target="#synergy-result" hx-swap="innerHTML">
+                <div class="form-group">
+                    <label for="hero_id">Hero ID:</label>
+                    <input type="number" id="hero_id" name="hero_id" placeholder="Enter hero ID" required>
+                </div>
+                <button type="submit">View Synergy</button>
+            </form>
+            <div id="synergy-result"></div>
+        </div>
+
+        <div class="card">
+            <h2>Counter Picks</h2>
+            <form hx-get="/v1/heroes/{id}/counter" hx-target="#counter-result" hx-swap="innerHTML">
+                <div class="form-group">
+                    <label for="hero_id_counter">Hero ID:</label>
+                    <input type="number" id="hero_id_counter" name="hero_id" placeholder="Enter hero ID" required>
+                </div>
+                <button type="submit">View Counters</button>
+            </form>
+            <div id="counter-result"></div>
+        </div>
+
+        <div class="card">
+            <h2>Hero Detail</h2>
+            <p>Enter a hero ID to see detailed synergy and counter information with visual heatmaps.</p>
+            <form hx-get="/v1/heroes/{id}/synergy" hx-target="#hero-detail" hx-swap="innerHTML">
+                <div class="form-group">
+                    <label for="hero_detail_id">Hero ID:</label>
+                    <input type="number" id="hero_detail_id" name="hero_id" placeholder="Enter hero ID" required>
+                </div>
+                <button type="submit">View Details</button>
+            </form>
+            <div id="hero-detail"></div>
+        </div>
+    </main>
+</body>
+</html>

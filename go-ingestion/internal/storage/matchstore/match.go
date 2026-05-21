@@ -1,0 +1,246 @@
+package matchstore
+
+import (
+	"context"
+)
+
+type Match struct {
+	MatchID               int64
+	MatchSeqNum           int64
+	StartTime             int64
+	Duration              int32
+	RadiantWin            bool
+	TowerStatusRadiant    int16
+	TowerStatusDire       int16
+	BarracksStatusRadiant int16
+	BarracksStatusDire    int16
+	RadiantScore          int16
+	DireScore             int16
+	FirstBloodTime        int32
+	LobbyType             int16
+	GameMode              int16
+	Cluster               int16
+	Region                int16
+	Skill                 int16
+	Engine                int16
+	HumanPlayers          int16
+	Version               int16
+	PatchID               int32
+	PositiveVotes         int32
+	NegativeVotes         int32
+	LeagueID              int32
+	SeriesID              int32
+	SeriesType            int16
+	RadiantTeamID         int64
+	DireTeamID            int64
+	RadiantCaptain        int64
+	DireCaptain           int64
+	ReplaySalt            int64
+	ReplayURL             string
+	Pauses                []byte
+	IsParsed              bool
+
+	Players      []PlayerRow
+	Details      []PlayerDetailRow
+	PicksBans    []PickBanRow
+	DraftTimings []DraftTimingRow
+	Objectives   []ObjectiveRow
+	Chat         []ChatRow
+	Teamfights   []TeamfightRow
+	Advantages   *AdvantagesRow
+	Cosmetics    []byte
+	Timeseries   []TimeseriesRow
+
+	Raw []byte `json:"-"`
+}
+
+type PlayerRow struct {
+	PlayerSlot              int16
+	AccountID               int64
+	HeroID                  int16
+	HeroVariant             int16
+	IsRadiant               bool
+	Win                     bool
+	PatchID                 int32
+	LobbyType               int16
+	GameMode                int16
+	RankTier                int16
+	Kills                   int16
+	Deaths                  int16
+	Assists                 int16
+	Level                   int16
+	NetWorth                int32
+	Gold                    int32
+	GoldSpent               int32
+	GoldPerMin              int16
+	XPPerMin                int16
+	LastHits                int16
+	Denies                  int16
+	HeroDamage              int32
+	TowerDamage             int32
+	HeroHealing             int32
+	Item0                   int32
+	Item1                   int32
+	Item2                   int32
+	Item3                   int32
+	Item4                   int32
+	Item5                   int32
+	ItemNeutral             int32
+	Backpack0               int32
+	Backpack1               int32
+	Backpack2               int32
+	Backpack3               int32
+	Lane                    int16
+	LaneRole                int16
+	IsRoaming               bool
+	PartyID                 int32
+	PartySize               int16
+	Stuns                   float32
+	ObsPlaced               int16
+	SenPlaced               int16
+	CreepsStacked           int16
+	CampsStacked            int16
+	RunePickups             int16
+	FirstbloodClaimed       bool
+	TeamfightParticipation  float32
+	TowersKilled            int16
+	RoshansKilled           int16
+	ObserversPlaced         int16
+	LeaverStatus            int16
+	GoldT                   []int32
+	XPT                     []int32
+	LHT                     []int32
+	DNT                     []int32
+	Times                   []int32
+	ThrowGold               int32
+	ComebackGold            int32
+	LossGold                int32
+	WinGold                 int32
+}
+
+type PlayerDetailRow struct {
+	PlayerSlot                int16
+	Damage                    []byte
+	DamageTaken               []byte
+	DamageInflictor           []byte
+	DamageInflictorReceived   []byte
+	DamageTargets             []byte
+	HeroHits                  []byte
+	MaxHeroHit                []byte
+	AbilityUses               []byte
+	AbilityTargets            []byte
+	AbilityUpgradesArr        []byte
+	ItemUses                  []byte
+	GoldReasons               []byte
+	XPReasons                 []byte
+	Killed                    []byte
+	KilledBy                  []byte
+	KillStreaks               []byte
+	MultiKills                []byte
+	LifeState                 []byte
+	LanePos                   []byte
+	Obs                       []byte
+	Sen                       []byte
+	Actions                   []byte
+	Pings                     []byte
+	Runes                     []byte
+	Purchase                  []byte
+	ObsLog                    []byte
+	SenLog                    []byte
+	ObsLeftLog                []byte
+	SenLeftLog                []byte
+	PurchaseLog               []byte
+	KillsLog                  []byte
+	BuybackLog                []byte
+	RunesLog                  []byte
+	ConnectionLog             []byte
+	PermanentBuffs            []byte
+	NeutralTokensLog          []byte
+	NeutralItemHistory        []byte
+	AdditionalUnits           []byte
+	Cosmetics                 []byte
+	Benchmarks                []byte
+	AllWordCounts             []byte
+	MyWordCounts              []byte
+}
+
+type PickBanRow struct {
+	Order  int16
+	IsPick bool
+	HeroID int16
+	Team   int16
+}
+
+type DraftTimingRow struct {
+	Order          int16
+	Pick           bool
+	ActiveTeam     int16
+	HeroID         int16
+	PlayerSlot     int16
+	ExtraTime      int32
+	TotalTimeTaken int32
+}
+
+type ObjectiveRow struct {
+	Time       int32
+	Type       string
+	Slot       int16
+	PlayerSlot int16
+	Team       int16
+	Key        string
+	Value      int32
+	Unit       string
+	Raw        []byte
+}
+
+type ChatRow struct {
+	Time       int32
+	Type       string
+	PlayerSlot int16
+	Unit       string
+	Key        string
+}
+
+type TeamfightRow struct {
+	EndTime   int32
+	LastDeath int32
+	Deaths    int16
+	Players   []byte
+}
+
+type AdvantagesRow struct {
+	RadiantGoldAdv []int32
+	RadiantXPAdv   []int32
+}
+
+type TimeseriesRow struct {
+	PlayerSlot int16
+	Minute     int16
+	HeroID     int16
+	AccountID  int64
+	PatchID    int32
+	Gold       int32
+	XP         int32
+	LH         int16
+	DN         int16
+}
+
+type MatchWriter interface {
+	IngestMatch(ctx context.Context, m Match) error
+}
+
+type MatchReader interface {
+	UnknownIDs(ctx context.Context, candidates []int64) ([]int64, error)
+	Counts(ctx context.Context) (Counts, error)
+	IsIngested(ctx context.Context, matchID int64, startTime int64) (bool, error)
+}
+
+type MatchStore interface {
+	MatchReader
+	MatchWriter
+}
+
+type Counts struct {
+	Matches int64
+	Players int64
+}

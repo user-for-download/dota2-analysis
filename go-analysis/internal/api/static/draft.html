@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Draft Assistant — Dota 2 Draft Analyst</title>
+    <script src="/static/js/htmx.min.js"></script>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <nav>
+        <a href="/">Home</a>
+        <a href="/draft">Draft Assistant</a>
+        <a href="/teams">Teams</a>
+        <a href="/heroes">Heroes</a>
+    </nav>
+    <main>
+        <h1>Draft Assistant</h1>
+        <form id="draft-form" hx-post="/v1/recommend" hx-target="#recommendations" hx-indicator="#loading">
+            <div class="form-group">
+                <label for="patch_id">Patch ID:</label>
+                <input type="number" id="patch_id" name="patch_id" value="72" required>
+            </div>
+            <div class="form-group">
+                <label for="user_team">Your Team:</label>
+                <select id="user_team" name="user_team">
+                    <option value="radiant">Radiant</option>
+                    <option value="dire">Dire</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="radiant_team_id">Radiant Team ID:</label>
+                <input type="number" id="radiant_team_id" name="radiant_team_id" value="0">
+            </div>
+            <div class="form-group">
+                <label for="dire_team_id">Dire Team ID:</label>
+                <input type="number" id="dire_team_id" name="dire_team_id" value="0">
+            </div>
+            <div class="form-group">
+                <label for="slot">Draft Slot (1-24):</label>
+                <input type="number" id="slot" name="slot" value="1" min="1" max="24">
+            </div>
+            <div class="form-group">
+                <label for="k">Top K Recommendations:</label>
+                <input type="number" id="k" name="k" value="10" min="1" max="50">
+            </div>
+            <button type="submit">Get Recommendations</button>
+        </form>
+        <div id="loading" class="htmx-indicator">Loading...</div>
+        <div id="recommendations"></div>
+    </main>
+</body>
+</html>

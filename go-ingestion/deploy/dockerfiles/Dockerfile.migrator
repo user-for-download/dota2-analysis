@@ -1,0 +1,12 @@
+# syntax=docker/dockerfile:1.7
+FROM go-dota2-base-local AS builder
+
+FROM alpine:3.20
+RUN apk add --no-cache ca-certificates tzdata && \
+    addgroup -S app && adduser -S -G app app
+COPY --from=builder /out/migrator /app/migrator
+# Migrations are embedded in the binary via go-dota2-core/schema.
+# No MIGRATIONS_DIR needed. No volume mount needed.
+USER app
+WORKDIR /app
+ENTRYPOINT ["/app/migrator"]

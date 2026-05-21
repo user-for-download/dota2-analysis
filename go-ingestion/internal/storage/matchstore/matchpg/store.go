@@ -1,0 +1,142 @@
+package matchpg
+
+import (
+	"context"
+	"fmt"
+	"log/slog"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/user-for-download/go-dota2/internal/storage/matchstore"
+)
+
+type Store struct {
+	db  *pgxpool.Pool
+	log *slog.Logger
+}
+
+func NewStore(db *pgxpool.Pool, log *slog.Logger) *Store {
+	if log == nil {
+		log = slog.Default()
+	}
+	return &Store{db: db, log: log.With("component", "matchpg")}
+}
+
+var _ matchstore.MatchWriter = (*Store)(nil)
+var _ matchstore.MatchReader = (*Store)(nil)
+
+func (s *Store) IngestMatch(ctx context.Context, m matchstore.Match) error {
+	if m.MatchID == 0 || m.StartTime == 0 {
+		return fmt.Errorf("match: id and start_time required")
+	}
+
+	err := pgx.BeginFunc(ctx, s.db, func(tx pgx.Tx) error {
+		heroIDs := collectHeroIDs(m)
+		if len(heroIDs) > 0 {
+			if err := s.ensureHeroStubs(ctx, tx, heroIDs); err != nil {
+				s.log.Warn("ensure_hero_stubs failed, triggers will handle missing heroes",
+					"match_id", m.MatchID, "err", err)
+			}
+		}
+
+		_, err := s.upsertMatchRoot(ctx, tx, m)
+		if err != nil {
+			return err
+		}
+
+		if err := s.upsertPlayers(ctx, tx, m); err != nil {
+			return err
+		}
+
+		if m.IsParsed {
+			if err := s.upsertPlayerDetails(ctx, tx, m); err != nil {
+				return err
+			}
+			if err := s.upsertPicksBans(ctx, tx, m); err != nil {
+				return err
+			}
+			if err := s.upsertDraftTimings(ctx, tx, m); err != nil {
+				return err
+			}
+			if err := s.upsertAdvantages(ctx, tx, m); err != nil {
+				return err
+			}
+			if err := s.replaceObjectives(ctx, tx, m); err != nil {
+				return err
+			}
+			if err := s.replaceChat(ctx, tx, m); err != nil {
+				return err
+			}
+			if err := s.replaceTeamfights(ctx, tx, m); err != nil {
+				return err
+			}
+			if err := s.upsertCosmetics(ctx, tx, m); err != nil {
+				return err
+			}
+			if err := s.upsertTimeseries(ctx, tx, m); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	s.log.Info("match ingested", "match_id", m.MatchID, "parsed", m.IsParsed)
+	return nil
+}
+
+func (s *Store) UnknownIDs(ctx context.Context, candidates []int64) ([]int64, error) {
+	if len(candidates) == 0 {
+		return nil, nil
+	}
+	rows, err := s.db.Query(ctx, `
+		SELECT c.id FROM unnest($1::bigint[]) AS c(id)
+		LEFT JOIN matches m ON m.match_id = c.id
+		WHERE m.match_id IS NULL
+	`, candidates)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) Counts(ctx context.Context) (matchstore.Counts, error) {
+	var c matchstore.Counts
+	err := s.db.QueryRow(ctx, `
+		SELECT
+			(SELECT COALESCE(sum(reltuples::bigint), 0)
+			 FROM pg_class c
+			 JOIN pg_namespace n ON n.oid = c.relnamespace
+			 WHERE n.nspname = 'public'
+			   AND c.relkind = 'r'
+			   AND c.relname IN ('matches', 'matches_default')
+			   AND NOT EXISTS (SELECT 1 FROM pg_inherits WHERE inhrelid = c.oid)),
+			(SELECT COALESCE(sum(reltuples::bigint), 0)
+			 FROM pg_class c
+			 JOIN pg_namespace n ON n.oid = c.relnamespace
+			 WHERE n.nspname = 'public'
+			   AND c.relkind = 'r'
+			   AND c.relname IN ('player_matches', 'player_matches_default')
+			   AND NOT EXISTS (SELECT 1 FROM pg_inherits WHERE inhrelid = c.oid))
+	`).Scan(&c.Matches, &c.Players)
+	return c, err
+}
+
+func (s *Store) IsIngested(ctx context.Context, matchID int64, startTime int64) (bool, error) {
+	var exists bool
+	err := s.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM matches WHERE match_id = $1 AND start_time = $2)`, matchID, startTime).Scan(&exists)
+	return exists, err
+}
