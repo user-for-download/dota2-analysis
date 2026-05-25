@@ -129,6 +129,7 @@ COMMENT ON TABLE heroes IS 'Populated by enricher from /heroes; id=0 is a stub f
 CREATE OR REPLACE FUNCTION ensure_hero_stubs(p_hero_ids SMALLINT[])
 RETURNS INTEGER
 LANGUAGE plpgsql AS $$
+
 DECLARE
     inserted INTEGER;
 BEGIN
@@ -158,6 +159,7 @@ COMMENT ON FUNCTION ensure_hero_stubs(SMALLINT[]) IS
 CREATE OR REPLACE FUNCTION trg_ensure_hero_stub()
 RETURNS TRIGGER
 LANGUAGE plpgsql AS $$
+SET search_path = public
 BEGIN
     IF NEW.hero_id IS NOT NULL
        AND NOT EXISTS (SELECT 1 FROM heroes WHERE id = NEW.hero_id) THEN

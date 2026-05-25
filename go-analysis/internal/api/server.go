@@ -2,8 +2,6 @@ package api
 
 import (
 	"context"
-	"fmt"
-	"io/fs"
 	"log/slog"
 	"net/http"
 	"os"
@@ -11,7 +9,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/user-for-download/dota2-analysis/go-analysis/internal/api/static"
 	"github.com/user-for-download/dota2-analysis/go-analysis/internal/config"
 	"github.com/user-for-download/dota2-analysis/go-analysis/internal/domain"
 	"github.com/user-for-download/dota2-analysis/go-analysis/internal/profiles"
@@ -54,21 +51,9 @@ func (s *Server) Run(ctx context.Context) error {
 	apiMux.HandleFunc("GET /v1/heroes/{id}/counter", s.handler.HeroCounter)
 	apiMux.HandleFunc("GET /v1/players/{id}/profile", s.handler.PlayerProfile)
 
-	// Serve static UI (embedded)
-	staticFS, err := fs.Sub(static.FS, ".")
-	if err != nil {
-		return fmt.Errorf("embed static: %w", err)
-	}
-	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.FS(staticFS))))
-	mux.Handle("/", http.FileServer(http.FS(staticFS)))
-
 	// API routes with auth middleware
 	mux.Handle("/v1/", AuthMiddleware(s.apiCfg.Token)(apiMux))
 
-	// Route precedence: Go 1.22+ ServeMux matches most-specific path first,
-	// so /v1/ takes precedence over / (static files). Static FileServer
-	// returns 404 for paths that don't match embedded assets — this is
-	// correct because /v1/ is handled by apiMux, not FileServer.
 	var h http.Handler = mux
 	h = RequestIDMiddleware(h)
 	h = LoggingMiddleware(s.log)(h)

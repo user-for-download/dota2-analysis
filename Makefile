@@ -148,12 +148,52 @@ armageddon: prune ## Nuke all Docker resources (containers, images, volumes, net
 	@echo "--- Everything wiped ---"
 
 #--------db----------
-dump-db:
-	docker exec dota2-postgres pg_dump -U dota2 -Fc dota2 > /home/ubuntu/dota2_dump.dump
+# Define variables
+DB_CONTAINER = dota2-postgres
+DB_USER = dota2
+DB_NAME = dota2
+BACKUP_DIR = ./backups
+TS := $(shell date +%Y%m%d_%H%M%S)
 
-restore-db:
-	docker exec -i dota2-postgres psql -U dota2 -d postgres -c "CREATE ROLE analytics_reader;"
-	docker exec -i dota2-postgres psql -U dota2 -d postgres -c "CREATE ROLE analytics_writer;"
-	docker exec -i dota2-postgres psql -U dota2 -d postgres -c "DROP DATABASE IF EXISTS dota2 WITH (FORCE);"
-	docker exec -i dota2-postgres psql -U dota2 -d postgres -c "CREATE DATABASE dota2;"
-	docker exec -i dota2-postgres pg_restore -U dota2 -d dota2 < /home/ubuntu/dota2_dump.dump
+.PHONY: db-backup db-restore
+
+db-backup: ## Create a full base backup (Roles + Data)
+	@echo "Starting backup process..."
+	@mkdir -p $(BACKUP_DIR)
+	@echo "1/2: Exporting global roles..."
+	@docker exec $(DB_CONTAINER) pg_dumpall -U $(DB_USER) --roles-only > $(BACKUP_DIR)/roles_$(TS).sql
+	@echo "2/2: Exporting database (Custom Format)..."
+	@docker exec $(DB_CONTAINER) pg_dump -U $(DB_USER) -Fc $(DB_NAME) > $(BACKUP_DIR)/dota2_$(TS).dump
+	@echo "Backup complete! Files saved to $(BACKUP_DIR)/"
+	@ls -lh $(BACKUP_DIR)/*$(TS)*
+
+db-restore: ## Restore a database backup. Usage: make db-restore DUMP=file.dump ROLES=roles.sql
+	@if [ -z "$(DUMP)" ] || [ -z "$(ROLES)" ]; then \
+		echo "ERROR: You must specify the backup files."; \
+		echo "Usage: make db-restore DUMP=./backups/dota2_xxx.dump ROLES=./backups/roles_xxx.sql"; \
+		exit 1; \
+	fi
+	@echo "WARNING: This will completely wipe the existing '$(DB_NAME)' database."
+	@printf "Are you sure? (y/N) "; \
+	read confirm; \
+	if [ "$$confirm" != "y" ]; then echo "Restore aborted."; exit 1; fi
+
+	@echo "1/5: Restoring global roles..."
+	@cat $(ROLES) | docker exec -i $(DB_CONTAINER) psql -U $(DB_USER) -d postgres > /dev/null 2>&1 || true
+
+	@echo "2/5: Dropping existing database..."
+	@docker exec -i $(DB_CONTAINER) psql -U $(DB_USER) -d postgres -c "DROP DATABASE IF EXISTS $(DB_NAME) WITH (FORCE);"
+
+	@echo "3/5: Creating fresh database..."
+	@docker exec -i $(DB_CONTAINER) psql -U $(DB_USER) -d postgres -c "CREATE DATABASE $(DB_NAME);"
+
+	@echo "4/5: Copying dump file to container..."
+	@docker cp $(DUMP) $(DB_CONTAINER):/tmp/db_restore.dump
+
+	@echo "5/5: Restoring data sequentially (prevents trigger conflicts)..."
+	@docker exec -i $(DB_CONTAINER) pg_restore -U $(DB_USER) -d $(DB_NAME) /tmp/db_restore.dump
+
+	@echo "Cleaning up temporary files..."
+	@docker exec -i $(DB_CONTAINER) rm /tmp/db_restore.dump
+
+	@echo "Restore complete!"

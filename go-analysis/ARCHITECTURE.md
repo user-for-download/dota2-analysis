@@ -282,7 +282,6 @@ go-analysis/
 ├── build/
 │   └── dockerfiles/             # Docker build definitions
 │       ├── Dockerfile.base      # Multi-arch Go builder (all binaries)
-│       ├── Dockerfile.api       # API runtime image
 │       ├── Dockerfile.featurizer# Featurizer runtime image
 │       ├── Dockerfile.backtester# Backtester runtime image
 │       └── Dockerfile.trainer   # Trainer runtime image
@@ -560,20 +559,6 @@ Get a player's hero comfort and recent team history.
   ]
 }
 ```
-
----
-
-### UI
-
-The API also serves a minimal HTMX-based UI at the root path:
-
-```
-GET /          — Dashboard
-GET /teams     — Team browser
-GET /h2h       — Head-to-head tool
-```
-
-Static assets are served from `/static/`.
 
 ---
 
