@@ -87,40 +87,40 @@ $$;
 -- Overlaps can be monitored via:
 --   SELECT * FROM cron.job_run_details ORDER BY start_time DESC LIMIT 10;
 -- =====================================================
-DO $$
+DO $cron$
 BEGIN
     PERFORM cron.schedule(
         'refresh-mv-team-hero-profile', '0 2 * * *',
-        $$SELECT analytics.refresh_mv_team_hero_profile_locked()$$
+        $cmd$SELECT analytics.refresh_mv_team_hero_profile_locked()$cmd$
     );
     PERFORM cron.schedule(
         'refresh-mv-hero-synergy', '0 2 * * *',
-        $$SELECT analytics.refresh_mv_hero_synergy_locked()$$
+        $cmd$SELECT analytics.refresh_mv_hero_synergy_locked()$cmd$
     );
     PERFORM cron.schedule(
         'refresh-mv-hero-counter', '0 2 * * *',
-        $$SELECT analytics.refresh_mv_hero_counter_locked()$$
+        $cmd$SELECT analytics.refresh_mv_hero_counter_locked()$cmd$
     );
     PERFORM cron.schedule(
         'refresh-mv-player-team-history', '0 2 * * *',
-        $$SELECT analytics.refresh_mv_player_team_history_locked()$$
+        $cmd$SELECT analytics.refresh_mv_player_team_history_locked()$cmd$
     );
     PERFORM cron.schedule(
         'refresh-mv-player-hero-profile', '0 2 * * *',
-        $$SELECT analytics.refresh_mv_player_hero_profile_locked()$$
+        $cmd$SELECT analytics.refresh_mv_player_hero_profile_locked()$cmd$
     );
     PERFORM cron.schedule(
         'maintain-time-partitions', '0 1 * * 0',
-        $$SELECT ensure_future_time_partitions(ARRAY['matches','player_matches','public_matches','player_timeseries'], 8)$$
+        $cmd$SELECT ensure_future_time_partitions(ARRAY['matches','player_matches','public_matches','player_timeseries'], 8)$cmd$
     );
     PERFORM cron.schedule(
         'drop-old-partitions', '0 3 * * 0',
-        $$SELECT drop_old_time_partitions(ARRAY['matches','player_matches','public_matches','player_timeseries'], 2)$$
+        $cmd$SELECT drop_old_time_partitions(ARRAY['matches','player_matches','public_matches','player_timeseries'], 2)$cmd$
     );
 EXCEPTION WHEN OTHERS THEN
     RAISE WARNING 'pg_cron scheduling skipped: % (is shared_preload_libraries=pg_cron set?)', SQLERRM;
 END;
-$$;
+$cron$;
 
 -- =====================================================
 -- Partition Retention
