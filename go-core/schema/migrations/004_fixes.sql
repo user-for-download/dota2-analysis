@@ -18,6 +18,11 @@ CREATE EXTENSION IF NOT EXISTS pg_cron;
 -- REFRESH CONCURRENTLY allows reads during refresh.
 -- Each MV is independent (no cross-MV dependencies).
 --
+-- Each refresh is wrapped in an advisory lock so that if a previous run
+-- is still in progress (e.g., due to data volume spikes), the new run
+-- is skipped rather than stacked. Overlaps can be monitored via:
+--   SELECT * FROM cron.job_run_details ORDER BY start_time DESC LIMIT 10;
+--
 -- Wrapped in DO block so that if pg_cron background worker is not running
 -- (e.g., shared_preload_libraries misconfiguration), the migration still
 -- succeeds. The cron.schedule documentation explains the prerequisite.
@@ -25,23 +30,58 @@ DO $$
 BEGIN
     PERFORM cron.schedule(
         'refresh-mv-team-hero-profile', '0 2 * * *',
-        'REFRESH MATERIALIZED VIEW CONCURRENTLY analytics.mv_team_hero_profile'
+        $$
+        DO $$ BEGIN
+            IF pg_try_advisory_lock(hashtext('r_mv_team_hero_profile')) THEN
+                REFRESH MATERIALIZED VIEW CONCURRENTLY analytics.mv_team_hero_profile;
+                PERFORM pg_advisory_unlock(hashtext('r_mv_team_hero_profile'));
+            END IF;
+        END $$;
+        $$
     );
     PERFORM cron.schedule(
         'refresh-mv-hero-synergy', '0 2 * * *',
-        'REFRESH MATERIALIZED VIEW CONCURRENTLY analytics.mv_hero_synergy'
+        $$
+        DO $$ BEGIN
+            IF pg_try_advisory_lock(hashtext('r_mv_hero_synergy')) THEN
+                REFRESH MATERIALIZED VIEW CONCURRENTLY analytics.mv_hero_synergy;
+                PERFORM pg_advisory_unlock(hashtext('r_mv_hero_synergy'));
+            END IF;
+        END $$;
+        $$
     );
     PERFORM cron.schedule(
         'refresh-mv-hero-counter', '0 2 * * *',
-        'REFRESH MATERIALIZED VIEW CONCURRENTLY analytics.mv_hero_counter'
+        $$
+        DO $$ BEGIN
+            IF pg_try_advisory_lock(hashtext('r_mv_hero_counter')) THEN
+                REFRESH MATERIALIZED VIEW CONCURRENTLY analytics.mv_hero_counter;
+                PERFORM pg_advisory_unlock(hashtext('r_mv_hero_counter'));
+            END IF;
+        END $$;
+        $$
     );
     PERFORM cron.schedule(
         'refresh-mv-player-team-history', '0 2 * * *',
-        'REFRESH MATERIALIZED VIEW CONCURRENTLY analytics.mv_player_team_history'
+        $$
+        DO $$ BEGIN
+            IF pg_try_advisory_lock(hashtext('r_mv_player_team_history')) THEN
+                REFRESH MATERIALIZED VIEW CONCURRENTLY analytics.mv_player_team_history;
+                PERFORM pg_advisory_unlock(hashtext('r_mv_player_team_history'));
+            END IF;
+        END $$;
+        $$
     );
     PERFORM cron.schedule(
         'refresh-mv-player-hero-profile', '0 2 * * *',
-        'REFRESH MATERIALIZED VIEW CONCURRENTLY analytics.mv_player_hero_profile'
+        $$
+        DO $$ BEGIN
+            IF pg_try_advisory_lock(hashtext('r_mv_player_hero_profile')) THEN
+                REFRESH MATERIALIZED VIEW CONCURRENTLY analytics.mv_player_hero_profile;
+                PERFORM pg_advisory_unlock(hashtext('r_mv_player_hero_profile'));
+            END IF;
+        END $$;
+        $$
     );
 EXCEPTION WHEN OTHERS THEN
     RAISE WARNING 'pg_cron scheduling skipped: % (is shared_preload_libraries=pg_cron set?)', SQLERRM;

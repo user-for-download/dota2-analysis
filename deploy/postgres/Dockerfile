@@ -10,6 +10,9 @@
 FROM postgres:16-alpine AS builder
 
 RUN set -eux; \
+    # Pin clang/llvm to version 19 — PG 16 was compiled with LLVM 19
+    # and pgxs.mk calls clang-19. When Alpine bumps the base image's
+    # LLVM version, update these to match.
     apk add --no-cache --virtual .pg-cron-build-deps \
         build-base \
         clang19 \
