@@ -103,10 +103,16 @@ func (s *Service) Recommend(ctx context.Context, st *domain.DraftState, k int) (
 	}
 	topK := finalScores[:k]
 
-	// 8. Build recommendations with explanations
+	// 8. Build hero→vector lookup for per-hero explanations
+	vecByHero := make(map[domain.HeroID]*domain.FeatureVector, len(vectors))
+	for _, v := range vectors {
+		vecByHero[v.Hero()] = v
+	}
+
+	// 9. Build recommendations with per-hero explanations
 	recs := make([]domain.Recommendation, k)
 	for i, sc := range topK {
-		reasons, riskReasons, _ := s.explainer.Explain(ctx, sc.Hero, sc.Value)
+		reasons, riskReasons, _ := s.explainer.Explain(ctx, vecByHero[sc.Hero], sc.Value)
 		recs[i] = domain.Recommendation{
 			Hero:    sc.Hero,
 			Name:    s.catalog.Name(sc.Hero),

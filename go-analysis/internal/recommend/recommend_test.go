@@ -34,11 +34,11 @@ func (m *mockScorer) Score(ctx context.Context, vectors []*domain.FeatureVector)
 }
 
 type mockExplainer struct {
-	explainFn func(ctx context.Context, hero domain.HeroID, score float64) ([]domain.Reason, []domain.Reason, error)
+	explainFn func(ctx context.Context, vector *domain.FeatureVector, score float64) ([]domain.Reason, []domain.Reason, error)
 }
 
-func (m *mockExplainer) Explain(ctx context.Context, hero domain.HeroID, score float64) ([]domain.Reason, []domain.Reason, error) {
-	return m.explainFn(ctx, hero, score)
+func (m *mockExplainer) Explain(ctx context.Context, vector *domain.FeatureVector, score float64) ([]domain.Reason, []domain.Reason, error) {
+	return m.explainFn(ctx, vector, score)
 }
 
 type mockCatalog struct{}
@@ -100,7 +100,7 @@ func TestRecommend_FullPipeline(t *testing.T) {
 		},
 	}
 	explainer := &mockExplainer{
-		explainFn: func(ctx context.Context, hero domain.HeroID, score float64) ([]domain.Reason, []domain.Reason, error) {
+		explainFn: func(ctx context.Context, vector *domain.FeatureVector, score float64) ([]domain.Reason, []domain.Reason, error) {
 			return []domain.Reason{{Factor: "synergy", Note: "strong", Delta: 0.05}}, nil, nil
 		},
 	}
@@ -155,7 +155,7 @@ func TestRecommend_WithValueModel(t *testing.T) {
 		},
 	}
 	explainer := &mockExplainer{
-		explainFn: func(ctx context.Context, hero domain.HeroID, score float64) ([]domain.Reason, []domain.Reason, error) {
+		explainFn: func(ctx context.Context, vector *domain.FeatureVector, score float64) ([]domain.Reason, []domain.Reason, error) {
 			return nil, nil, nil
 		},
 	}
@@ -200,7 +200,7 @@ func TestRecommend_ValueScorerFallback(t *testing.T) {
 		},
 	}
 	explainer := &mockExplainer{
-		explainFn: func(ctx context.Context, hero domain.HeroID, score float64) ([]domain.Reason, []domain.Reason, error) {
+		explainFn: func(ctx context.Context, vector *domain.FeatureVector, score float64) ([]domain.Reason, []domain.Reason, error) {
 			return nil, nil, nil
 		},
 	}
@@ -298,7 +298,7 @@ func TestRecommend_TopK(t *testing.T) {
 		},
 	}
 	explainer := &mockExplainer{
-		explainFn: func(ctx context.Context, hero domain.HeroID, score float64) ([]domain.Reason, []domain.Reason, error) {
+		explainFn: func(ctx context.Context, vector *domain.FeatureVector, score float64) ([]domain.Reason, []domain.Reason, error) {
 			return nil, nil, nil
 		},
 	}

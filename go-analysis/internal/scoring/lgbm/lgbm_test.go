@@ -297,9 +297,19 @@ func TestLoadModel_MissingBin(t *testing.T) {
 // Explainer
 // ──────────────────────────────────────────────
 
+func specForTest(_ *testing.T) *domain.FeatureSpec {
+	return &domain.FeatureSpec{
+		Version: "test",
+		Features: []domain.FeatureDef{
+			{Name: "test_feat", Dtype: "f32"},
+		},
+	}
+}
+
 func TestExplainer_Explain(t *testing.T) {
 	e := NewExplainer()
-	reasons, risks, err := e.Explain(context.Background(), 10, 0.85)
+	vec := domain.NewFeatureVector(specForTest(t), domain.HeroID(10), []float64{1.0})
+	reasons, risks, err := e.Explain(context.Background(), vec, 0.85)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -319,7 +329,8 @@ func TestExplainer_Explain(t *testing.T) {
 
 func TestExplainer_ExplainZero(t *testing.T) {
 	e := NewExplainer()
-	reasons, risks, err := e.Explain(context.Background(), 5, 0.0)
+	vec := domain.NewFeatureVector(specForTest(t), domain.HeroID(5), []float64{0.0})
+	reasons, risks, err := e.Explain(context.Background(), vec, 0.0)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

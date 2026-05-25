@@ -20,13 +20,15 @@ func TestExplain(t *testing.T) {
 	for name := range s.Weights() {
 		s.SetWeight(name, 0)
 	}
-	s.SetWeight("strong", 0.30)  // > 0.1 → reason
-	s.SetWeight("weak", 0.05)    // ≤ 0.1 → not a reason
-	s.SetWeight("risky", -0.30)  // < -0.05 → risk
-	s.SetWeight("neutral", 0.0)  // between -0.05 and 0.1 → nothing
+	s.SetWeight("strong", 0.30)  // weight × value = 0.30 * 0.80 = 0.24 (reason)
+	s.SetWeight("weak", 0.05)    // 0.05 * 0.50 = 0.025 (not a reason)
+	s.SetWeight("risky", -0.30)  // -0.30 * 0.70 = -0.21 (risk)
+	s.SetWeight("neutral", 0.0)  // 0.0 * 0.40 = 0.00 (nothing)
+
+	vector := domain.NewFeatureVector(spec, 1, []float64{0.80, 0.50, 0.70, 0.40})
 
 	e := NewExplainer(s)
-	reasons, risks, err := e.Explain(context.Background(), domain.HeroID(1), 0.8)
+	reasons, risks, err := e.Explain(context.Background(), vector, 0.8)
 	if err != nil {
 		t.Fatalf("Explain failed: %v", err)
 	}
@@ -43,12 +45,12 @@ func TestExplain(t *testing.T) {
 		t.Errorf("risk factor = %q, want %q", risks[0].Factor, "risky")
 	}
 
-	// Verify delta values.
-	if reasons[0].Delta != 0.30 {
-		t.Errorf("reason delta = %f, want 0.30", reasons[0].Delta)
+	// Verify delta values (weight × feature value).
+	if reasons[0].Delta != 0.24 {
+		t.Errorf("reason delta = %f, want 0.24", reasons[0].Delta)
 	}
-	if risks[0].Delta != -0.30 {
-		t.Errorf("risk delta = %f, want -0.30", risks[0].Delta)
+	if risks[0].Delta != -0.21 {
+		t.Errorf("risk delta = %f, want -0.21", risks[0].Delta)
 	}
 }
 
@@ -62,19 +64,23 @@ func TestExplainBoundary(t *testing.T) {
 	for name := range s.Weights() {
 		s.SetWeight(name, 0)
 	}
-	s.SetWeight("borderline_positive", 0.10) // exactly 0.1 → not a reason (> threshold)
-	s.SetWeight("borderline_negative", -0.05) // exactly -0.05 → not a risk (< threshold)
+	// contribution = 0.10 * 0.90 = 0.09 ≤ 0.1 → not a reason
+	s.SetWeight("borderline_positive", 0.10)
+	// contribution = -0.05 * 0.80 = -0.04 ≥ -0.05 → not a risk
+	s.SetWeight("borderline_negative", -0.05)
+
+	vector := domain.NewFeatureVector(spec, 1, []float64{0.90, 0.80})
 
 	e := NewExplainer(s)
-	reasons, risks, err := e.Explain(context.Background(), domain.HeroID(1), 0.5)
+	reasons, risks, err := e.Explain(context.Background(), vector, 0.5)
 	if err != nil {
 		t.Fatalf("Explain failed: %v", err)
 	}
 	if len(reasons) != 0 {
-		t.Errorf("expected 0 reasons for weight 0.10, got %d", len(reasons))
+		t.Errorf("expected 0 reasons, got %d", len(reasons))
 	}
 	if len(risks) != 0 {
-		t.Errorf("expected 0 risks for weight -0.05, got %d", len(risks))
+		t.Errorf("expected 0 risks, got %d", len(risks))
 	}
 }
 
@@ -85,12 +91,15 @@ func TestExplainNoWeights(t *testing.T) {
 		{Name: "team_wr_shrunk", Dtype: "f32"},
 	})
 	s := NewScorer(spec)
+	// Provide non-zero values so contributions can exceed thresholds.
+	vector := domain.NewFeatureVector(spec, 1, []float64{1.0, 1.0})
+
 	e := NewExplainer(s)
-	reasons, risks, err := e.Explain(context.Background(), domain.HeroID(1), 0.5)
+	reasons, risks, err := e.Explain(context.Background(), vector, 0.5)
 	if err != nil {
 		t.Fatalf("Explain failed: %v", err)
 	}
-	// At least team_wr_shrunk (0.30) should be a reason.
+	// team_wr_shrunk (0.30) × 1.0 = 0.30 should be a reason.
 	found := false
 	for _, r := range reasons {
 		if r.Factor == "team_wr_shrunk" {

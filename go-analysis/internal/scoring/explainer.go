@@ -9,5 +9,6 @@ import (
 // Explainer decomposes a score into human-readable contributing factors.
 type Explainer interface {
 	// Explain returns reasons supporting the score and risks detracting from it.
-	Explain(ctx context.Context, hero domain.HeroID, score float64) ([]domain.Reason, []domain.Reason, error)
+	// The FeatureVector is needed to compute per-hero feature contributions.
+	Explain(ctx context.Context, vector *domain.FeatureVector, score float64) ([]domain.Reason, []domain.Reason, error)
 }

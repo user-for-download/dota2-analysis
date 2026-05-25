@@ -7,7 +7,7 @@ import (
 	"github.com/user-for-download/dota2-analysis/go-analysis/internal/domain"
 )
 
-// Explainer decomposes a linear score into per-feature contributions.
+// Explainer decomposes a linear score into per-hero feature contributions.
 type Explainer struct {
 	scorer *Scorer
 }
@@ -17,27 +17,32 @@ func NewExplainer(scorer *Scorer) *Explainer {
 	return &Explainer{scorer: scorer}
 }
 
-// Explain returns reasons and risks based on feature weight magnitudes.
-// Positive high-weight features are listed as reasons; negative-weight
-// features are listed as risks.
-func (e *Explainer) Explain(_ context.Context, hero domain.HeroID, score float64) ([]domain.Reason, []domain.Reason, error) {
+// Explain returns reasons and risks based on the hero's actual feature values.
+// Each reason/risk contribution is computed as weight × feature_value, so
+// the output is specific to the hero instead of regurgitating global weights.
+func (e *Explainer) Explain(_ context.Context, vector *domain.FeatureVector, score float64) ([]domain.Reason, []domain.Reason, error) {
 	weights := e.scorer.Weights()
+	spec := vector.Spec()
+	vals := vector.Values()
 
 	var reasons []domain.Reason
 	var risks []domain.Reason
 
-	for name, w := range weights {
-		if w > 0.1 {
+	for j, def := range spec.Features {
+		w := weights[def.Name]
+		contribution := w * vals[j]
+		switch {
+		case contribution > 0.1:
 			reasons = append(reasons, domain.Reason{
-				Factor: name,
-				Note:   fmt.Sprintf("weight: %.2f", w),
-				Delta:  w,
+				Factor: def.Name,
+				Note:   fmt.Sprintf("contribution: %.4f", contribution),
+				Delta:  contribution,
 			})
-		} else if w < -0.05 {
+		case contribution < -0.05:
 			risks = append(risks, domain.Reason{
-				Factor: name,
-				Note:   fmt.Sprintf("weight: %.2f (negative)", w),
-				Delta:  w,
+				Factor: def.Name,
+				Note:   fmt.Sprintf("contribution: %.4f", contribution),
+				Delta:  contribution,
 			})
 		}
 	}

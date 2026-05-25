@@ -23,12 +23,6 @@ func (h *Handler) Recommend(w http.ResponseWriter, r *http.Request) {
 		req.K = 10
 	}
 
-	// Convert request to DraftState
-	userTeam := domain.SideUs
-	if req.UserTeam == "dire" {
-		userTeam = domain.SideThem
-	}
-
 	// Convert roster
 	radiantRoster := make([]domain.AccountID, len(req.RadiantRoster))
 	for i, id := range req.RadiantRoster {
@@ -57,10 +51,21 @@ func (h *Handler) Recommend(w http.ResponseWriter, r *http.Request) {
 		direBans[i] = domain.HeroID(id)
 	}
 
+	// Determine perspective from the acting team (whose turn it is),
+	// not from the requesting user's team. If it's Dire's turn we
+	// evaluate from Dire's perspective (synergies with Dire picks,
+	// countering Radiant picks, etc.). This matches SimulateDraft.
+	phases := domain.CMPhaseTable()
+	phase, _ := phases.At(req.Slot - 1)
+	userTeam := domain.SideUs
+	if phase.ActingTeam == domain.DraftDire {
+		userTeam = domain.SideThem
+	}
+
 	st := domain.NewDraftState(
 		domain.PatchID(req.PatchID),
 		userTeam,
-		domain.CMPhaseTable(),
+		phases,
 		domain.TeamID(req.RadiantTeamID), domain.TeamID(req.DireTeamID),
 		radiantRoster, direRoster,
 		radiantPicks, direPicks,
@@ -75,7 +80,7 @@ func (h *Handler) Recommend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	phase := st.Phase()
+	phase = st.Phase()
 	resp := RecommendResponse{
 		Phase:          phase.Name,
 		IsBan:          phase.IsBan,
