@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/user-for-download/go-dota2/internal/config"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/config"
 )
 
 func WaitForPostgres(ctx context.Context, cfg config.PostgresConfig, wait WaitConfig, log *slog.Logger) (*pgxpool.Pool, error) {

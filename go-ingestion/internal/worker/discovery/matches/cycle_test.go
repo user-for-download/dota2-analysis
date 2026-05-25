@@ -9,10 +9,10 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/user-for-download/go-dota2/internal/dedup/inmem"
-	metricsinmem "github.com/user-for-download/go-dota2/internal/metrics/inmem"
-	"github.com/user-for-download/go-dota2/internal/queue"
-	queueinmem "github.com/user-for-download/go-dota2/internal/queue/inmem"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/dedup/inmem"
+	metricsinmem "github.com/user-for-download/dota2-analysis/go-ingestion/internal/metrics/inmem"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/queue"
+	queueinmem "github.com/user-for-download/dota2-analysis/go-ingestion/internal/queue/inmem"
 )
 
 type fakeDoer struct {

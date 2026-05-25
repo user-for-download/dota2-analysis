@@ -18,7 +18,7 @@ import (
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/user-for-download/go-dota2/internal/queue"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/queue"
 )
 
 // LatencySink records per-message processing latency.

@@ -167,6 +167,18 @@ types (`MatchRef`, `HeroRef`, etc.); `enrich` aliases these for
 backward compatibility. The `initmarker` package provides
 `BootstrapMarker` for source gating.
 
+### `dlq`
+
+Consumes messages from dead-letter streams (`dota2:fetch:dlq`, `dota2:parse:dlq`)
+after they exceed `QUEUE_MAX_RETRIES`. Supports three commands via `--cmd`:
+
+- **`list`** — print all DLQ messages as formatted JSON
+- **`requeue`** — return messages to their origin stream for reprocessing
+- **`purge`** — delete all messages from the DLQ
+
+This binary is a standalone debugging and recovery tool — it is not part of the
+main pipeline and does not run by default.
+
 ### `migrator`
 
 Runs once at deploy time. Discovers numbered SQL files in
@@ -183,12 +195,14 @@ cmd/                    Process entry points (one main per binary)
   enricher/             Static reference data
   proxyloader/          Proxy pool maintainer
   migrator/             SQL migrations
+  dlq/                  Dead-letter queue inspector & recovery
 
 internal/
   bootstrap/            Wires Redis/Postgres/metrics/proxy from Config
   config/               Env-driven Config struct with all settings
 
   dedup/                Seen-set abstraction (inmem + redis)
+  dlq/                  Dead-letter queue commands (list, requeue, purge)
   enrich/               Reference-data domain
     httpclient/         HTTPClient interface + implementations
     initmarker/         BootstrapMarker interface
@@ -204,17 +218,30 @@ internal/
     redisstreams/       Queue with W3C trace propagation
 
   storage/              Ports-and-adapters
-    pgclient/          Pool opener + Stores bundle + otelpgx tracer
-    matchstore/        MatchWriter/MatchReader interfaces + matchpg adapter
-    lookupstore/       LookupReader interface + lookuppg adapter
-    partitionstore/   PartitionAdmin interface + partitionpg adapter
-    refdatastore/      RefDataWriter interface + refdatapg adapter
-    redis/             Connection wrapper
+    pgclient/           Pool opener + Stores bundle + otelpgx tracer
+    matchstore/         MatchWriter/MatchReader interfaces + matchpg adapter
+      match.go          Core Match type
+      draft.go          Pick/ban draft types
+      environment.go    Game environment (game mode, lobby, region)
+      events.go         Timeline event types
+      identity.go       Player identity (slot, team, account)
+      interfaces.go     MatchWriter / MatchReader interfaces
+      players.go        Per-player statistics
+      teams.go          Team-level aggregates
+    lookupstore/        LookupReader interface + lookuppg adapter
+    partitionstore/     PartitionAdmin interface + partitionpg adapter
+    refdatastore/       RefDataWriter interface + refdatapg adapter
+    redis/              Connection wrapper
 
   worker/               Pipeline implementations
     discoverer/
     fetcher/
     parser/
+      decode.go         Core Match type and top-level decode
+      decode_match.go   Match-level JSON fields
+      decode_players.go Player array and per-player fields
+      decode_draft.go   Pick/ban phase reconstruction
+      decode_events.go  Timeline events (runes, kills, objectives)
     runner.go           Generic queue runner + Handler/HTTPDoer interfaces + OTel spans
 ```
 

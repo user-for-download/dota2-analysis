@@ -5,14 +5,14 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/user-for-download/go-dota2/internal/storage/lookupstore"
-	"github.com/user-for-download/go-dota2/internal/storage/lookupstore/lookuppg"
-	"github.com/user-for-download/go-dota2/internal/storage/matchstore"
-	"github.com/user-for-download/go-dota2/internal/storage/matchstore/matchpg"
-	"github.com/user-for-download/go-dota2/internal/storage/partitionstore"
-	"github.com/user-for-download/go-dota2/internal/storage/partitionstore/partitionpg"
-	"github.com/user-for-download/go-dota2/internal/storage/refdatastore"
-	"github.com/user-for-download/go-dota2/internal/storage/refdatastore/refdatapg"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/storage/lookupstore"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/storage/lookupstore/lookuppg"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/storage/matchstore"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/storage/matchstore/matchpg"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/storage/partitionstore"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/storage/partitionstore/partitionpg"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/storage/refdatastore"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/storage/refdatastore/refdatapg"
 )
 
 type Stores struct {

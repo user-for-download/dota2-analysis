@@ -3,7 +3,7 @@ package scoring
 import (
 	"context"
 
-	"github.com/user-for-download/go-dota2-analysis/internal/domain"
+	"github.com/user-for-download/dota2-analysis/go-analysis/internal/domain"
 )
 
 // Scorer evaluates feature vectors and produces numeric scores for heroes.

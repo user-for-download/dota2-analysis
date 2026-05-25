@@ -1,6 +1,6 @@
 package features
 
-import "github.com/user-for-download/go-dota2-analysis/internal/domain"
+import "github.com/user-for-download/dota2-analysis/go-analysis/internal/domain"
 
 // attrEncoding maps primary_attr strings to numeric codes for ML features.
 var attrEncoding = map[string]float64{"str": 1, "agi": 2, "int": 3, "all": 4}

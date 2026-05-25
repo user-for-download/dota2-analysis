@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/user-for-download/go-dota2/internal/worker"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/worker"
 )
 
 type DBConstraintError struct {

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sync/atomic"
 
-	"github.com/user-for-download/go-dota2-analysis/internal/domain"
+	"github.com/user-for-download/dota2-analysis/go-analysis/internal/domain"
 )
 
 // ReloadableScorer wraps a Scorer in an atomic.Pointer for thread-safe hot-reload.

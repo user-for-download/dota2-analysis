@@ -32,7 +32,7 @@ Typed IDs (`domain.HeroID`, `domain.MatchID`, etc.) should be used at public API
 - **Forward-only migrations.** No down-migrations.
 - **Additive by default.** Adding columns, tables, indexes is safe.
 - **Breaking changes require sign-off** from both team leads.
-- **Numbering:** strictly sequential (`003_*.sql`, `004_*.sql`, ...).
+- **Numbering:** strictly sequential (`003_launch_keys.sql`, `004_*.sql`, ...).
 
 ## Adding a Migration
 

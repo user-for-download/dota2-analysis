@@ -9,7 +9,7 @@ import (
 
 	goredis "github.com/redis/go-redis/v9"
 
-	"github.com/user-for-download/go-dota2/internal/proxy"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/proxy"
 )
 
 func newTestPool(t *testing.T) (*Pool, *goredis.Client, func()) {

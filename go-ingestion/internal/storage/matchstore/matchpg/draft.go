@@ -5,7 +5,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/user-for-download/go-dota2/internal/storage/matchstore"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/storage/matchstore"
 )
 
 func (s *Store) upsertPicksBans(ctx context.Context, tx pgx.Tx, m matchstore.Match) error {

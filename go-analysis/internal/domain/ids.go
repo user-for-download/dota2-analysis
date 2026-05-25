@@ -1,6 +1,6 @@
 package domain
 
-import core "github.com/user-for-download/go-dota2-core/domain"
+import core "github.com/user-for-download/dota2-analysis/go-core/domain"
 
 // Typed ID primitives re-exported from go-dota2-core.
 // Type aliases (=) make these identical types, not just convertible,

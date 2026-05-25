@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/user-for-download/go-dota2/internal/enrich"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/enrich"
 )
 
 type ItemsSource struct {

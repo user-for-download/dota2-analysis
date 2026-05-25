@@ -3,7 +3,7 @@ package features
 import (
 	"testing"
 
-	"github.com/user-for-download/go-dota2-analysis/internal/domain"
+	"github.com/user-for-download/dota2-analysis/go-analysis/internal/domain"
 )
 
 // inMemoryCatalog implements domain.HeroCatalog for tests.

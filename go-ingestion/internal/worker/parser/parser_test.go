@@ -10,12 +10,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/user-for-download/go-dota2/internal/metrics"
-	metricsinmem "github.com/user-for-download/go-dota2/internal/metrics/inmem"
-	payloadinmem "github.com/user-for-download/go-dota2/internal/payload/inmem"
-	"github.com/user-for-download/go-dota2/internal/queue"
-	queueinmem "github.com/user-for-download/go-dota2/internal/queue/inmem"
-	"github.com/user-for-download/go-dota2/internal/storage/matchstore"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/metrics"
+	metricsinmem "github.com/user-for-download/dota2-analysis/go-ingestion/internal/metrics/inmem"
+	payloadinmem "github.com/user-for-download/dota2-analysis/go-ingestion/internal/payload/inmem"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/queue"
+	queueinmem "github.com/user-for-download/dota2-analysis/go-ingestion/internal/queue/inmem"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/storage/matchstore"
 )
 
 // msgFromTask converts a queue.Task to a queue.Message for testing handlers.

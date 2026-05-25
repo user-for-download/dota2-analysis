@@ -10,10 +10,10 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	corebootstrap "github.com/user-for-download/go-dota2-core/bootstrap"
-	coreconfig "github.com/user-for-download/go-dota2-core/config"
+	corebootstrap "github.com/user-for-download/dota2-analysis/go-core/bootstrap"
+	coreconfig "github.com/user-for-download/dota2-analysis/go-core/config"
 
-	"github.com/user-for-download/go-dota2-analysis/internal/config"
+	"github.com/user-for-download/dota2-analysis/go-analysis/internal/config"
 )
 
 // Deps holds shared dependencies for analysis services.

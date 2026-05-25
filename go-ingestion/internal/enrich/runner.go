@@ -6,7 +6,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/user-for-download/go-dota2/internal/enrich/gate"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/enrich/gate"
 )
 
 type RunnerOptions struct {

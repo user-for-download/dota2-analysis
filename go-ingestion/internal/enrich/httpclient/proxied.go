@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/user-for-download/go-dota2/internal/proxy/httpdo"
-	"github.com/user-for-download/go-dota2/internal/proxy"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/proxy/httpdo"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/proxy"
 )
 
 type Direct struct {

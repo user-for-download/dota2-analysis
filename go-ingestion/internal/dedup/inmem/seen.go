@@ -4,7 +4,7 @@ import (
 	"context"
 	"sync"
 
-	"github.com/user-for-download/go-dota2/internal/dedup"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/dedup"
 )
 
 type Seen struct {

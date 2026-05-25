@@ -1,6 +1,6 @@
 package parser
 
-import "github.com/user-for-download/go-dota2/internal/storage/matchstore"
+import "github.com/user-for-download/dota2-analysis/go-ingestion/internal/storage/matchstore"
 
 func decodePicksBans(raw []rawPickBan) []matchstore.PickBanRow {
 	if len(raw) == 0 {

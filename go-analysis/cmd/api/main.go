@@ -10,16 +10,16 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/user-for-download/go-dota2-analysis/internal/api"
-	"github.com/user-for-download/go-dota2-analysis/internal/bootstrap"
-	"github.com/user-for-download/go-dota2-analysis/internal/config"
-	"github.com/user-for-download/go-dota2-analysis/internal/domain"
-	"github.com/user-for-download/go-dota2-analysis/internal/features"
-	"github.com/user-for-download/go-dota2-analysis/internal/recommend"
-	"github.com/user-for-download/go-dota2-analysis/internal/scoring"
-	"github.com/user-for-download/go-dota2-analysis/internal/scoring/lgbm"
-	"github.com/user-for-download/go-dota2-analysis/internal/scoring/linear"
-	"github.com/user-for-download/go-dota2-analysis/internal/storage/postgres"
+	"github.com/user-for-download/dota2-analysis/go-analysis/internal/api"
+	"github.com/user-for-download/dota2-analysis/go-analysis/internal/bootstrap"
+	"github.com/user-for-download/dota2-analysis/go-analysis/internal/config"
+	"github.com/user-for-download/dota2-analysis/go-analysis/internal/domain"
+	"github.com/user-for-download/dota2-analysis/go-analysis/internal/features"
+	"github.com/user-for-download/dota2-analysis/go-analysis/internal/recommend"
+	"github.com/user-for-download/dota2-analysis/go-analysis/internal/scoring"
+	"github.com/user-for-download/dota2-analysis/go-analysis/internal/scoring/lgbm"
+	"github.com/user-for-download/dota2-analysis/go-analysis/internal/scoring/linear"
+	"github.com/user-for-download/dota2-analysis/go-analysis/internal/storage/postgres"
 )
 
 var (

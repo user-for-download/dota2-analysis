@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/user-for-download/go-dota2/internal/proxy/transport"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/proxy/transport"
 )
 
 type HTTPSource struct {

@@ -8,18 +8,18 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/user-for-download/go-dota2/internal/config"
-	"github.com/user-for-download/go-dota2/internal/dedup"
-	"github.com/user-for-download/go-dota2/internal/metrics"
-	"github.com/user-for-download/go-dota2/internal/queue"
-	"github.com/user-for-download/go-dota2/internal/storage/herostatstore"
-	"github.com/user-for-download/go-dota2/internal/storage/leaguestore"
-	"github.com/user-for-download/go-dota2/internal/storage/matchstore"
-	"github.com/user-for-download/go-dota2/internal/storage/pgclient"
-	"github.com/user-for-download/go-dota2/internal/storage/proplayerstore"
-	"github.com/user-for-download/go-dota2/internal/storage/teamstore"
-	"github.com/user-for-download/go-dota2/internal/worker/discovery"
-	"github.com/user-for-download/go-dota2/internal/worker/discovery/matches"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/config"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/dedup"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/metrics"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/queue"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/storage/herostatstore"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/storage/leaguestore"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/storage/matchstore"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/storage/pgclient"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/storage/proplayerstore"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/storage/teamstore"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/worker/discovery"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/worker/discovery/matches"
 )
 
 type DiscovererDeps struct {

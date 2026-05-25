@@ -8,12 +8,12 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/user-for-download/go-dota2/internal/config"
-	"github.com/user-for-download/go-dota2/internal/storage/partitionstore"
-	"github.com/user-for-download/go-dota2/internal/storage/pgclient"
-	"github.com/user-for-download/go-dota2/internal/worker"
-	"github.com/user-for-download/go-dota2/internal/worker/ingester"
-	"github.com/user-for-download/go-dota2/internal/worker/parser"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/config"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/storage/partitionstore"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/storage/pgclient"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/worker"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/worker/ingester"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/worker/parser"
 )
 
 type ParserDeps struct {

@@ -31,18 +31,23 @@
 │              ┌──────────────┼──────────────┐                    │
 │              │              │              │                    │
 │              ▼              ▼              ▼                    │
-│  ┌──────────────┐ ┌──────────────┐ ┌───────────────────┐        │
-│  │  Featurizer  │ │    API       │ │   Trainer         │        │
-│  │  (periodic)  │ │  (HTTP :8080)│ │  (on-demand)      │        │
-│  │              │ │              │ │  profiles:training│        │
-│  │ Refreshes MVs│ │ Recommends   │ │                   │        │
-│  │ Snapshots    │ │ drafts       │ │ Trains LGBM       │        │
-│  └──────────────┘ └──────────────┘ └───────────────────┘        │
-│                                                                 │
-│  ┌──────────────┐                                               │
-│  │  Backtester  │  (on-demand, offline)                         │
-│  │              │  Replays historical drafts                    │
-│  └──────────────┘                                               │
+│  ┌──────────────────┐  ┌──────────────┐ ┌───────────────────┐ │
+│  │   Featurizer     │  │    API       │ │   Trainer         │ │
+│  │  (periodic)      │  │  (HTTP :8080)│ │  (on-demand)      │ │
+│  │                  │  │              │ │  profiles:training│ │
+│  │ 1. RefreshAll MVs│  │ Waits for    │ │                   │ │
+│  │ 2. Set launch_key│──│ featurizer   │ │ Trains LGBM       │ │
+│  │ 3. Snapshot      │  │  ready key   │ │                   │ │
+│  └────────┬─────────┘  └──────────────┘ └───────────────────┘ │
+│           │ launch_key                                         │
+│           ▼                                                    │
+│  ┌──────────────────┐                                          │
+│  │  analytics.launch│                                          │
+│  │  _keys table     │  ┌──────────────┐                        │
+│  │  (Postgres)      │  │  Backtester  │  (on-demand, offline)  │
+│  │                  │──│  (waits for  │  Replays historical    │
+│  └──────────────────┘  │   key too)   │  drafts                │
+│                        └──────────────┘                        │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -51,12 +56,15 @@
 1. **Ingestion** (sibling project) writes raw match data to `public.*` tables
 2. **Featurizer** runs on a schedule (default: every 24h):
    - Refreshes materialized views in `analytics.*` (hero profiles, synergies, counters)
+   - Inserts `featurizer_ready` key into `analytics.launch_keys` (unblocks API/backtester)
    - Takes point-in-time snapshots to `analytics.feature_snapshots_player_hero`
    - Updates `analytics.featurizer_runs` with execution metadata
-3. **API** serves HTTP requests:
+3. **API** blocks at startup via `bootstrap.WaitForLaunchKey()` until the featurizer
+   has populated the MVs, then serves HTTP requests:
    - Reads from `analytics.*` MVs and `public.*` tables (read-only)
    - Uses linear scorer (hand-tuned weights) or LGBM model for draft recommendations
    - LGBM model loaded from `/models/imitation/current/` with SIGHUP hot-reload
+   - Backtester also blocks on the same key before evaluating models
 4. **Trainer** (Python, on-demand):
    - Reads historical data from Postgres
    - Trains LightGBM model → writes `model.bin`, `spec.json`, `meta.json` to `/models/`
@@ -221,18 +229,20 @@ The analysis services are part of the monorepo root `deploy/docker-compose.yml`.
 
 ### Migration Steps
 
-Migrations are run via the sibling project's migrator. Apply `002_analytics.sql` from `go-core/schema/migrations/` (the canonical migration directory for the monorepo).
+Migrations are run via the canonical migrator at `go-core/schema/migrations/`.
 
 1. Verify migration:
    ```sql
    SELECT version, filename FROM public.schema_migrations ORDER BY version;
-   -- Should show: 1 (init), 2 (analytics)
+   -- Should show: 1 (init), 2 (analytics), 3 (launch_keys)
    ```
 
-3. Run featurizer to populate MVs:
+2. Run featurizer to populate MVs (sets `featurizer_ready` launch key):
    ```bash
    docker compose --profile all up featurizer
    ```
+
+3. API and backtester now auto-wait for the launch key — no manual sequencing needed.
 
 ### Building Images
 
@@ -295,7 +305,7 @@ dota2-analysis/
 │   ├── docker-compose.yml       # Full stack composition
 │   ├── docker-bake.hcl          # Docker Buildx bake definitions
 │   └── compose/                 # Compose overrides
-└── go-core/schema/migrations/   # Versioned SQL migrations (001_*, 002_*)
+└── go-core/schema/migrations/   # Versioned SQL migrations (001_*, 002_*, 003_*)
 ```
 
 ---
@@ -767,6 +777,9 @@ UNION ALL SELECT 'hero_synergy', COUNT(*) FROM analytics.mv_hero_synergy
 UNION ALL SELECT 'hero_counter', COUNT(*) FROM analytics.mv_hero_counter
 UNION ALL SELECT 'player_team_history', COUNT(*) FROM analytics.mv_player_team_history
 UNION ALL SELECT 'player_hero_profile', COUNT(*) FROM analytics.mv_player_hero_profile;
+
+-- Check launch key state (service startup synchronization)
+SELECT * FROM analytics.launch_keys;
 
 -- Check feature snapshot history
 SELECT snapshot_at, COUNT(*) as rows

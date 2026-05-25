@@ -7,10 +7,10 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/user-for-download/go-dota2/internal/config"
-	"github.com/user-for-download/go-dota2/internal/proxy"
-	"github.com/user-for-download/go-dota2/internal/proxy/httpdo"
-	"github.com/user-for-download/go-dota2/internal/worker/fetcher"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/config"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/proxy"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/proxy/httpdo"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/worker/fetcher"
 )
 
 type FetcherDeps struct {

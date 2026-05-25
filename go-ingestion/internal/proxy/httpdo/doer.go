@@ -16,8 +16,8 @@ import (
 
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 
-	"github.com/user-for-download/go-dota2/internal/proxy"
-	"github.com/user-for-download/go-dota2/internal/proxy/transport"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/proxy"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/proxy/transport"
 )
 
 type Config struct {

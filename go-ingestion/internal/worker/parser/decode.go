@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"math"
 
-	"github.com/user-for-download/go-dota2/internal/storage/matchstore"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/storage/matchstore"
 )
 
 // Match is an alias for the matchstore type.

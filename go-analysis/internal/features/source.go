@@ -5,8 +5,8 @@ import (
 	"crypto/sha256"
 	"fmt"
 
-	"github.com/user-for-download/go-dota2-analysis/internal/domain"
-	"github.com/user-for-download/go-dota2-analysis/internal/profiles"
+	"github.com/user-for-download/dota2-analysis/go-analysis/internal/domain"
+	"github.com/user-for-download/dota2-analysis/go-analysis/internal/profiles"
 )
 
 // FeatureSpecVersion is the current version identifier for the feature spec.

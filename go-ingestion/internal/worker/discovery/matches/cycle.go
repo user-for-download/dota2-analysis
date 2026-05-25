@@ -12,12 +12,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/user-for-download/go-dota2/internal/dedup"
-	"github.com/user-for-download/go-dota2/internal/metrics"
-	"github.com/user-for-download/go-dota2/internal/queue"
-	"github.com/user-for-download/go-dota2/internal/storage/matchstore"
-	"github.com/user-for-download/go-dota2/internal/worker/discovery"
-	"github.com/user-for-download/go-dota2/internal/worker/fetcher"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/dedup"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/metrics"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/queue"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/storage/matchstore"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/worker/discovery"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/worker/fetcher"
 )
 
 type Config struct {

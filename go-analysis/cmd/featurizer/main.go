@@ -8,9 +8,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/user-for-download/go-dota2-analysis/internal/bootstrap"
-	"github.com/user-for-download/go-dota2-analysis/internal/config"
-	"github.com/user-for-download/go-dota2-analysis/internal/featurize"
+	"github.com/user-for-download/dota2-analysis/go-analysis/internal/bootstrap"
+	"github.com/user-for-download/dota2-analysis/go-analysis/internal/config"
+	"github.com/user-for-download/dota2-analysis/go-analysis/internal/featurize"
 )
 
 var (

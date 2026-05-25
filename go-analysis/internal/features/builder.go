@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/user-for-download/go-dota2-analysis/internal/domain"
+	"github.com/user-for-download/dota2-analysis/go-analysis/internal/domain"
 )
 
 // Builder assembles FeatureVectors from a DraftState and a set of candidate heroes.

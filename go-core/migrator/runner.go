@@ -8,8 +8,8 @@
 // Usage:
 //
 //	import (
-//	    "github.com/user-for-download/go-dota2-core/migrator"
-//	    "github.com/user-for-download/go-dota2-core/schema"
+//	    "github.com/user-for-download/dota2-analysis/go-core/migrator"
+//	    "github.com/user-for-download/dota2-analysis/go-core/schema"
 //	)
 //
 //	if err := migrator.Run(ctx, dsn, schema.Migrations, log); err != nil {

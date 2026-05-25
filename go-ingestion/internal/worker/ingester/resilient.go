@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/user-for-download/go-dota2/internal/storage/matchstore"
-	"github.com/user-for-download/go-dota2/internal/worker"
-	"github.com/user-for-download/go-dota2/internal/worker/parser"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/storage/matchstore"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/worker"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/worker/parser"
 )
 
 // ResilientIngester wraps a parser.Ingester with circuit-breaker protection.

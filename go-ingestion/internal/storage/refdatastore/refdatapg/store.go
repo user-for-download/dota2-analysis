@@ -5,8 +5,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/user-for-download/go-dota2/internal/enrich"
-	"github.com/user-for-download/go-dota2/internal/storage/refdatastore"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/enrich"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/storage/refdatastore"
 )
 
 type Store struct {

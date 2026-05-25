@@ -16,8 +16,8 @@ import (
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
-	"github.com/user-for-download/go-dota2-core/migrator"
-	"github.com/user-for-download/go-dota2-core/schema"
+	"github.com/user-for-download/dota2-analysis/go-core/migrator"
+	"github.com/user-for-download/dota2-analysis/go-core/schema"
 )
 
 // TestSchemaInvariants applies all embedded migrations to a real Postgres

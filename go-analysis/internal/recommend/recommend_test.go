@@ -6,7 +6,7 @@ import (
 	"log/slog"
 	"testing"
 
-	"github.com/user-for-download/go-dota2-analysis/internal/domain"
+	"github.com/user-for-download/dota2-analysis/go-analysis/internal/domain"
 )
 
 // ─── Mocks ──────────────────────────────────────────────────

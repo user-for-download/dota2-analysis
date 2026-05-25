@@ -33,6 +33,8 @@ discoverer ─▶ fetch queue ─▶ fetcher ─▶ parse queue ─▶ parser �
                         └──── payload blobs ────┘
                         (Redis, TTL)
 
+DLQ      ─▶ dead-letter inspection (fetcher/parse failures)
+
 enricher ─▶ Postgres (heroes, items, patches, …)
 migrator ─▶ Postgres schema
 Jaeger  ─▶ http://localhost:16686 (traces + metrics)
@@ -89,7 +91,7 @@ make armageddon       # nuke project images, volumes, build cache
 go-ingestion/               ← This module
   cmd/                      Entry points (one main per binary)
     discoverer/  fetcher/  parser/  enricher/
-    proxyloader/  migrator/
+    proxyloader/  migrator/  dlq/
   internal/
     bootstrap/              Wires Redis/Postgres/metrics from Config
     config/                 Env-driven configuration with all settings

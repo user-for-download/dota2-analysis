@@ -10,9 +10,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/user-for-download/go-dota2/internal/bootstrap"
-	"github.com/user-for-download/go-dota2/internal/config"
-	"github.com/user-for-download/go-dota2/internal/proxy/loader"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/bootstrap"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/config"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/proxy/loader"
 )
 
 func main() {

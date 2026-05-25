@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/user-for-download/go-dota2/internal/enrich"
-	"github.com/user-for-download/go-dota2/internal/enrich/jsonutil"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/enrich"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/enrich/jsonutil"
 )
 
 const DefaultBaseURL = "https://raw.githubusercontent.com/odota/dotaconstants/master/build"

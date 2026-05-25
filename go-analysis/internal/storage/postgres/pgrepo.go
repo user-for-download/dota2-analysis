@@ -5,8 +5,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/user-for-download/go-dota2-analysis/internal/domain"
-	"github.com/user-for-download/go-dota2-analysis/internal/profiles"
+	"github.com/user-for-download/dota2-analysis/go-analysis/internal/domain"
+	"github.com/user-for-download/dota2-analysis/go-analysis/internal/profiles"
 )
 
 // PGRepository implements profiles.Repository using Postgres materialized views.

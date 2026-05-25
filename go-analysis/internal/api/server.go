@@ -11,12 +11,12 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/user-for-download/go-dota2-analysis/internal/api/static"
-	"github.com/user-for-download/go-dota2-analysis/internal/config"
-	"github.com/user-for-download/go-dota2-analysis/internal/domain"
-	"github.com/user-for-download/go-dota2-analysis/internal/profiles"
-	"github.com/user-for-download/go-dota2-analysis/internal/recommend"
-	"github.com/user-for-download/go-dota2-analysis/internal/scoring/lgbm"
+	"github.com/user-for-download/dota2-analysis/go-analysis/internal/api/static"
+	"github.com/user-for-download/dota2-analysis/go-analysis/internal/config"
+	"github.com/user-for-download/dota2-analysis/go-analysis/internal/domain"
+	"github.com/user-for-download/dota2-analysis/go-analysis/internal/profiles"
+	"github.com/user-for-download/dota2-analysis/go-analysis/internal/recommend"
+	"github.com/user-for-download/dota2-analysis/go-analysis/internal/scoring/lgbm"
 )
 
 // Server is the HTTP API server.

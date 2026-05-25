@@ -1,4 +1,4 @@
-module github.com/user-for-download/go-dota2
+module github.com/user-for-download/dota2-analysis/go-ingestion
 
 go 1.26.2
 
@@ -30,7 +30,7 @@ require (
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
-	github.com/user-for-download/go-dota2-core v0.1.0
+	github.com/user-for-download/dota2-analysis/go-core v0.1.0
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.43.0 // indirect
 	go.opentelemetry.io/proto/otlp v1.10.0 // indirect
@@ -44,5 +44,4 @@ require (
 	google.golang.org/protobuf v1.36.11 // indirect
 )
 
-replace github.com/user-for-download/go-dota2-core => ../go-core
-
+replace github.com/user-for-download/dota2-analysis/go-core => ../go-core

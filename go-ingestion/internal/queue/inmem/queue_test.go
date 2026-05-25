@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/user-for-download/go-dota2/internal/queue"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/queue"
 )
 
 func TestPushPopAck(t *testing.T) {

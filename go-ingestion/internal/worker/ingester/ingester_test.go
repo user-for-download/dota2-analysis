@@ -9,9 +9,9 @@ import (
 
 	"github.com/jackc/pgx/v5/pgconn"
 
-	"github.com/user-for-download/go-dota2/internal/metrics"
-	metricsinmem "github.com/user-for-download/go-dota2/internal/metrics/inmem"
-	"github.com/user-for-download/go-dota2/internal/storage/matchstore"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/metrics"
+	metricsinmem "github.com/user-for-download/dota2-analysis/go-ingestion/internal/metrics/inmem"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/storage/matchstore"
 )
 
 // matchWithID is a test helper to create a Match with just the identity set.

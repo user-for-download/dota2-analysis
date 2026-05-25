@@ -5,9 +5,9 @@ import (
 	"log/slog"
 	"sort"
 
-	"github.com/user-for-download/go-dota2-analysis/internal/domain"
-	"github.com/user-for-download/go-dota2-analysis/internal/features"
-	"github.com/user-for-download/go-dota2-analysis/internal/scoring"
+	"github.com/user-for-download/dota2-analysis/go-analysis/internal/domain"
+	"github.com/user-for-download/dota2-analysis/go-analysis/internal/features"
+	"github.com/user-for-download/dota2-analysis/go-analysis/internal/scoring"
 )
 
 // Recommender generates ranked hero recommendations for a draft state.

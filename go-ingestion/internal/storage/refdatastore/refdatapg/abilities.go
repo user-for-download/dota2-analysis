@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/user-for-download/go-dota2/internal/storage/refdatastore"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/storage/refdatastore"
 )
 
 func (s *Store) UpsertAbilities(ctx context.Context, a []refdatastore.AbilityRef) error {

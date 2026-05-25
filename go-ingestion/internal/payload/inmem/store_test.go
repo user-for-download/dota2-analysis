@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/user-for-download/go-dota2/internal/payload"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/payload"
 )
 
 func TestPutGetDelete(t *testing.T) {

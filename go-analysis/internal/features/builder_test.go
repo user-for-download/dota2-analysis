@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/user-for-download/go-dota2-analysis/internal/domain"
+	"github.com/user-for-download/dota2-analysis/go-analysis/internal/domain"
 )
 
 // mockSource returns a fixed value for every hero.

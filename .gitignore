@@ -56,7 +56,6 @@ dump_out/
 *.log
 /dump/
 /tmp/
-.opencode
 # ─── Docker ───
 .docker/
 *.tar

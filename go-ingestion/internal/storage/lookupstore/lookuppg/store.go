@@ -7,7 +7,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"log/slog"
 
-	"github.com/user-for-download/go-dota2/internal/storage/lookupstore"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/storage/lookupstore"
 )
 
 type Store struct {

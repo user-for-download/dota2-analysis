@@ -53,10 +53,12 @@ go-analysis  ──requires──>  go-core (shared domain types, bootstrap, mig
 ## Data Flow
 
 1. **Sibling ingestion** writes raw match data to `public.*`
-2. **Featurizer** refreshes `analytics.*` materialized views (every 24h)
-3. **API** reads from MVs, scores candidates, serves recommendations
-4. **Trainer** (Python) trains LightGBM models offline
-5. **Backtester** evaluates models against historical drafts
+2. **Featurizer** refreshes `analytics.*` materialized views (every 24h):
+   - Refreshes all MVs → inserts `featurizer_ready` launch key → snapshots
+3. **API** blocks at startup on `analytics.launch_keys` key (`WaitForLaunchKey`),
+   then reads from MVs, scores candidates, and serves recommendations
+4. **Backtester** also blocks on the same key before evaluating models
+5. **Trainer** (Python) trains LightGBM models offline
 
 ## API Endpoints
 
@@ -82,7 +84,7 @@ Switch via `ANALYTICS_SCORER_KIND=linear|lgbm`.
 
 ## ML Training
 
-Python package in `training/`:
+Python package in `training/`. Build with `build/dockerfiles/Dockerfile.trainer`:
 
 ```bash
 # Extract data → train imitation model → evaluate → publish
@@ -93,6 +95,9 @@ trainer train-imitation
 trainer evaluate
 trainer publish
 ```
+
+Model artifacts are written to `assets/models/imitation/current/` and hot-reloaded
+by the API on SIGHUP.
 
 ## See Also
 

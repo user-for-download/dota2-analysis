@@ -149,4 +149,8 @@ dump-db:
 	docker exec dota2-postgres pg_dump -U dota2 -Fc dota2 > /home/ubuntu/dota2_dump.dump
 
 restore-db:
-    docker exec -i dota2-postgres pg_restore -U dota2 -d dota2 --clean --if-exists < /home/ubuntu/dota2_dump.dump
+	docker exec -i dota2-postgres psql -U dota2 -d postgres -c "CREATE ROLE analytics_reader;"
+	docker exec -i dota2-postgres psql -U dota2 -d postgres -c "CREATE ROLE analytics_writer;"
+	docker exec -i dota2-postgres psql -U dota2 -d postgres -c "DROP DATABASE IF EXISTS dota2 WITH (FORCE);"
+	docker exec -i dota2-postgres psql -U dota2 -d postgres -c "CREATE DATABASE dota2;"
+	docker exec -i dota2-postgres pg_restore -U dota2 -d dota2 < /home/ubuntu/dota2_dump.dump

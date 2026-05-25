@@ -12,7 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/user-for-download/go-dota2-core/config"
+	"github.com/user-for-download/dota2-analysis/go-core/config"
 )
 
 // Postgres opens a pgxpool connection with OTel tracing and connection-pool safety.

@@ -4,9 +4,9 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/user-for-download/go-dota2/internal/enrich/httpclient"
-	initmarker "github.com/user-for-download/go-dota2/internal/enrich/initmarker"
-	"github.com/user-for-download/go-dota2/internal/storage/refdatastore"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/enrich/httpclient"
+	initmarker "github.com/user-for-download/dota2-analysis/go-ingestion/internal/enrich/initmarker"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/storage/refdatastore"
 )
 
 type HTTPClient = httpclient.HTTPClient

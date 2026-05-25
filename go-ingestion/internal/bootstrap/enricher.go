@@ -9,13 +9,13 @@ import (
 	goredis "github.com/redis/go-redis/v9"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/user-for-download/go-dota2/internal/config"
-	"github.com/user-for-download/go-dota2/internal/enrich"
-	enrichgate "github.com/user-for-download/go-dota2/internal/enrich/gate"
-	"github.com/user-for-download/go-dota2/internal/enrich/httpclient"
-	"github.com/user-for-download/go-dota2/internal/enrich/sources/dotaconstants"
-	"github.com/user-for-download/go-dota2/internal/proxy"
-	"github.com/user-for-download/go-dota2/internal/storage/refdatastore"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/config"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/enrich"
+	enrichgate "github.com/user-for-download/dota2-analysis/go-ingestion/internal/enrich/gate"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/enrich/httpclient"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/enrich/sources/dotaconstants"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/proxy"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/storage/refdatastore"
 )
 
 type EnricherDeps struct {

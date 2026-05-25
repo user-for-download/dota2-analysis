@@ -14,7 +14,7 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
-	"github.com/user-for-download/go-dota2/internal/config"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/config"
 )
 
 // luaReplayAtomic is a Lua script for atomic XAdd + XDel.

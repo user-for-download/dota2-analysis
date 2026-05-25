@@ -11,11 +11,11 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/user-for-download/go-dota2/internal/metrics"
-	"github.com/user-for-download/go-dota2/internal/payload"
-	"github.com/user-for-download/go-dota2/internal/proxy/httpdo"
-	"github.com/user-for-download/go-dota2/internal/queue"
-	"github.com/user-for-download/go-dota2/internal/worker"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/metrics"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/payload"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/proxy/httpdo"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/queue"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/worker"
 )
 
 // latencyAdapter adapts metrics.Sink to redisstreams.LatencySink.

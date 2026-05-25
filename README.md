@@ -123,7 +123,7 @@ Shared primitives consumed by both projects. See `go-core/README.md` for details
 | `domain/` | Typed IDs (HeroID, MatchID, TeamID, etc.) |
 | `bootstrap/` | Postgres pool, slog + OTel, telemetry init |
 | `config/` | Shared config types (Postgres, Telemetry) |
-| `schema/` | Embedded SQL migrations (001_init, 002_analytics) |
+| `schema/` | Embedded SQL migrations (001_init, 002_analytics, 003_launch_keys) |
 | `migrator/` | Embedded-SQL migration runner |
 | `contracttest/` | Schema invariant + boundary tests |
 

@@ -6,11 +6,11 @@ import (
 	"log/slog"
 	"strconv"
 
-	"github.com/user-for-download/go-dota2/internal/dedup"
-	"github.com/user-for-download/go-dota2/internal/metrics"
-	"github.com/user-for-download/go-dota2/internal/storage/matchstore"
-	"github.com/user-for-download/go-dota2/internal/worker"
-	"github.com/user-for-download/go-dota2/internal/worker/parser"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/dedup"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/metrics"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/storage/matchstore"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/worker"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/worker/parser"
 )
 
 type Config struct {

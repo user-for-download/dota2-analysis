@@ -1,7 +1,7 @@
 package parser
 
 import (
-	"github.com/user-for-download/go-dota2/internal/storage/matchstore"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/storage/matchstore"
 )
 
 func decodePlayers(raw []rawPlayer) ([]matchstore.PlayerRow, []matchstore.PlayerDetailRow) {

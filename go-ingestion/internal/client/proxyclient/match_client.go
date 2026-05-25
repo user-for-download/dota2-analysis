@@ -10,8 +10,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/user-for-download/go-dota2/internal/client"
-	"github.com/user-for-download/go-dota2/internal/proxy"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/client"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/proxy"
 )
 
 type Config struct {

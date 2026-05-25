@@ -8,7 +8,7 @@ import (
 
 	goredis "github.com/redis/go-redis/v9"
 
-	"github.com/user-for-download/go-dota2/internal/queue"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/queue"
 )
 
 func newTestQueue(t *testing.T) (*Queue, *goredis.Client, func()) {

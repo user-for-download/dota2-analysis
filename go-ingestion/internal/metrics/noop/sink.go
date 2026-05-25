@@ -3,7 +3,7 @@ package noop
 import (
 	"context"
 
-	"github.com/user-for-download/go-dota2/internal/metrics"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/metrics"
 )
 
 type Sink struct{}

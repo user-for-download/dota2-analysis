@@ -8,7 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/user-for-download/go-dota2-analysis/internal/storage/postgres"
+	"github.com/user-for-download/dota2-analysis/go-analysis/internal/storage/postgres"
 )
 
 // Runner executes the featurizer loop: refresh MVs and record snapshots.
