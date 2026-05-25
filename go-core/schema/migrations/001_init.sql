@@ -30,7 +30,7 @@ BEGIN
     SELECT c.relkind = 'p' INTO is_partitioned
     FROM pg_class c
     JOIN pg_namespace n ON n.oid = c.relnamespace
-    WHERE n.nspname = 'public' AND c.relname = parent;
+    WHERE n.nspname = current_schema() AND c.relname = parent;
 
     IF NOT FOUND THEN
         RAISE EXCEPTION 'table % not found', parent;
@@ -47,7 +47,7 @@ BEGIN
         JOIN pg_class ch   ON ch.oid = i.inhrelid
         JOIN pg_class pt   ON pt.oid = i.inhparent
         JOIN pg_namespace n ON n.oid = ch.relnamespace
-        WHERE pt.relname = parent AND n.nspname = 'public'
+        WHERE pt.relname = parent AND n.nspname = current_schema()
     LOOP
         EXECUTE format('ALTER TABLE %I SET (%s)', r.part_name, params);
     END LOOP;
@@ -729,6 +729,12 @@ CREATE TABLE IF NOT EXISTS player_match_details_p29 PARTITION OF player_match_de
 CREATE TABLE IF NOT EXISTS player_match_details_p30 PARTITION OF player_match_details FOR VALUES WITH (MODULUS 32, REMAINDER 30);
 CREATE TABLE IF NOT EXISTS player_match_details_p31 PARTITION OF player_match_details FOR VALUES WITH (MODULUS 32, REMAINDER 31);
 
+-- Autovacuum tuning: 32 hash partitions × 40+ JSONB columns = high TOAST bloat risk.
+SELECT apply_storage_params(
+    'player_match_details',
+    'autovacuum_vacuum_scale_factor = 0.02, autovacuum_analyze_scale_factor = 0.01, toast.autovacuum_vacuum_scale_factor = 0.01'
+);
+
 -- =====================================================
 -- Picks / Bans (HASH partitioned, 16 parts)
 -- =====================================================
@@ -914,12 +920,24 @@ CREATE TABLE IF NOT EXISTS match_advantages_p6 PARTITION OF match_advantages FOR
 CREATE TABLE IF NOT EXISTS match_advantages_p7 PARTITION OF match_advantages FOR VALUES WITH (MODULUS 8, REMAINDER 7);
 
 -- =====================================================
--- Match cosmetics
+-- Match cosmetics (HASH partitioned, 8 parts)
 -- =====================================================
+DROP TABLE IF EXISTS match_cosmetics CASCADE;
+
 CREATE TABLE IF NOT EXISTS match_cosmetics (
-    match_id  BIGINT PRIMARY KEY,
-    cosmetics JSONB NOT NULL
-);
+    match_id  BIGINT NOT NULL,
+    cosmetics JSONB NOT NULL,
+    PRIMARY KEY (match_id)
+) PARTITION BY HASH (match_id);
+
+CREATE TABLE IF NOT EXISTS match_cosmetics_p0 PARTITION OF match_cosmetics FOR VALUES WITH (MODULUS 8, REMAINDER 0);
+CREATE TABLE IF NOT EXISTS match_cosmetics_p1 PARTITION OF match_cosmetics FOR VALUES WITH (MODULUS 8, REMAINDER 1);
+CREATE TABLE IF NOT EXISTS match_cosmetics_p2 PARTITION OF match_cosmetics FOR VALUES WITH (MODULUS 8, REMAINDER 2);
+CREATE TABLE IF NOT EXISTS match_cosmetics_p3 PARTITION OF match_cosmetics FOR VALUES WITH (MODULUS 8, REMAINDER 3);
+CREATE TABLE IF NOT EXISTS match_cosmetics_p4 PARTITION OF match_cosmetics FOR VALUES WITH (MODULUS 8, REMAINDER 4);
+CREATE TABLE IF NOT EXISTS match_cosmetics_p5 PARTITION OF match_cosmetics FOR VALUES WITH (MODULUS 8, REMAINDER 5);
+CREATE TABLE IF NOT EXISTS match_cosmetics_p6 PARTITION OF match_cosmetics FOR VALUES WITH (MODULUS 8, REMAINDER 6);
+CREATE TABLE IF NOT EXISTS match_cosmetics_p7 PARTITION OF match_cosmetics FOR VALUES WITH (MODULUS 8, REMAINDER 7);
 
 -- =====================================================
 -- Cosmetics catalog
@@ -1181,7 +1199,7 @@ BEGIN
         SELECT c.table_schema, c.table_name
         FROM information_schema.columns c
         JOIN information_schema.tables t ON t.table_schema = c.table_schema AND t.table_name = c.table_name
-        WHERE c.column_name = 'updated_at' AND c.table_schema = 'public' AND t.table_type = 'BASE TABLE'
+        WHERE c.column_name = 'updated_at' AND c.table_schema = current_schema() AND t.table_type = 'BASE TABLE'
           AND NOT EXISTS (
               SELECT 1 FROM pg_inherits i
               JOIN pg_class ch ON ch.oid = i.inhrelid
@@ -1214,3 +1232,39 @@ BEGIN
         );
     END LOOP;
 END $$;
+
+-- =====================================================
+-- Default partition monitoring alert
+-- Call periodically (e.g. via pg_cron or monit) to detect
+-- rows leaking into DEFAULT partitions — indicates missing
+-- time-range partitions for recent quarters.
+-- =====================================================
+CREATE OR REPLACE FUNCTION check_default_partitions(
+    threshold_rows INT DEFAULT 100
+)
+RETURNS TABLE(partition TEXT, rows BIGINT, alert_level TEXT)
+LANGUAGE plpgsql STABLE
+AS $$
+BEGIN
+    RETURN QUERY
+    SELECT
+        v.partition,
+        v.rows,
+        CASE
+            WHEN v.rows > threshold_rows * 10 THEN 'CRITICAL'
+            WHEN v.rows > threshold_rows         THEN 'WARNING'
+            ELSE 'OK'
+        END
+    FROM v_default_partition_health v
+    WHERE v.rows > threshold_rows;
+
+    IF NOT FOUND THEN
+        RETURN QUERY SELECT 'ALL_OK'::TEXT, 0::BIGINT, 'OK'::TEXT;
+    END IF;
+END;
+$$;
+
+COMMENT ON FUNCTION check_default_partitions(INT) IS
+    E'Returns partitions with rows above threshold.\n'
+    'Call: SELECT * FROM check_default_partitions(100);\n'
+    'Any row with alert_level != OK means a DEFAULT partition has accumulated data.';

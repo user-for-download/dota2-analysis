@@ -59,7 +59,7 @@ JOIN public.heroes h ON h.id = pb.hero_id
 WHERE m.leagueid          > 0
   AND m.radiant_team_id   IS NOT NULL
   AND m.dire_team_id      IS NOT NULL
-  AND m.patch_id          >= (SELECT MAX(patch_id) - 2 FROM public.matches)
+  AND m.start_time        >= EXTRACT(EPOCH FROM (NOW() - INTERVAL '6 months'))::BIGINT
   AND pb.hero_id          > 0          -- exclude no_hero stub
 GROUP BY tm.team_id, pb.hero_id, h.localized_name
 WITH NO DATA;
@@ -89,7 +89,7 @@ WITH team_picks AS (
       AND m.radiant_team_id IS NOT NULL
       AND m.dire_team_id    IS NOT NULL
       AND m.radiant_win     IS NOT NULL
-      AND m.patch_id        >= (SELECT MAX(patch_id) - 2 FROM public.matches)
+      AND m.start_time      >= EXTRACT(EPOCH FROM (NOW() - INTERVAL '6 months'))::BIGINT
       AND pb.hero_id        > 0
 )
 SELECT
@@ -137,7 +137,7 @@ WITH match_heroes AS (
       AND m.radiant_team_id IS NOT NULL
       AND m.dire_team_id    IS NOT NULL
       AND m.radiant_win     IS NOT NULL
-      AND m.patch_id        >= (SELECT MAX(patch_id) - 2 FROM public.matches)
+      AND m.start_time      >= EXTRACT(EPOCH FROM (NOW() - INTERVAL '6 months'))::BIGINT
       AND pb.hero_id        > 0
 )
 SELECT
@@ -188,7 +188,7 @@ JOIN public.matches m
 WHERE m.leagueid          > 0
   AND m.radiant_team_id   IS NOT NULL
   AND m.dire_team_id      IS NOT NULL
-  AND m.patch_id          >= (SELECT MAX(patch_id) - 2 FROM public.matches)
+  AND m.start_time        >= EXTRACT(EPOCH FROM (NOW() - INTERVAL '6 months'))::BIGINT
   AND pm.account_id       IS NOT NULL
 GROUP BY pm.account_id, tm.team_id
 WITH NO DATA;
@@ -218,7 +218,7 @@ JOIN public.heroes h ON h.id = pm.hero_id
 WHERE m.leagueid          > 0
   AND m.radiant_team_id   IS NOT NULL
   AND m.dire_team_id      IS NOT NULL
-  AND m.patch_id          >= (SELECT MAX(patch_id) - 2 FROM public.matches)
+  AND m.start_time        >= EXTRACT(EPOCH FROM (NOW() - INTERVAL '6 months'))::BIGINT
   AND pm.account_id       IS NOT NULL
   AND pm.win              IS NOT NULL
   AND pm.hero_id          > 0
