@@ -15,7 +15,7 @@ type Direct struct {
 	Client *http.Client
 }
 
-func (d Direct) Get(ctx context.Context, rawURL string) (*http.Response, error) {
+func (d *Direct) Get(ctx context.Context, rawURL string) (*http.Response, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", rawURL, nil)
 	if err != nil {
 		return nil, err
@@ -23,7 +23,7 @@ func (d Direct) Get(ctx context.Context, rawURL string) (*http.Response, error) 
 	return d.Client.Do(req)
 }
 
-var _ HTTPClient = Direct{}
+var _ HTTPClient = (*Direct)(nil)
 
 type ProxiedConfig struct {
 	Pool            proxy.Pool

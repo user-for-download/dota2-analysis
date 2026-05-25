@@ -15,6 +15,7 @@ import (
 	"github.com/user-for-download/go-dota2/internal/dedup"
 	"github.com/user-for-download/go-dota2/internal/metrics"
 	"github.com/user-for-download/go-dota2/internal/queue"
+	"github.com/user-for-download/go-dota2/internal/storage/matchstore"
 	"github.com/user-for-download/go-dota2/internal/worker/discovery"
 	"github.com/user-for-download/go-dota2/internal/worker/fetcher"
 )
@@ -29,18 +30,20 @@ type Config struct {
 	Dedup    dedup.Seen
 	FileKey  string
 	Doer    discovery.HTTPDoer
+	Reader  matchstore.MatchReader
 }
 
 type Cycle struct {
-	out   queue.Queue
-	doer  discovery.HTTPDoer
-	m     metrics.Sink
-	dedup dedup.Seen
-	cfg   Config
-	log   *slog.Logger
+	out    queue.Publisher
+	doer   discovery.HTTPDoer
+	m      metrics.Sink
+	dedup  dedup.Seen
+	cfg    Config
+	log    *slog.Logger
+	reader matchstore.MatchReader
 }
 
-func New(out queue.Queue, doer discovery.HTTPDoer, m metrics.Sink, cfg Config) (*Cycle, error) {
+func New(out queue.Publisher, doer discovery.HTTPDoer, m metrics.Sink, cfg Config) (*Cycle, error) {
 	if out == nil {
 		return nil, fmt.Errorf("matches: out queue required")
 	}
@@ -61,12 +64,13 @@ func New(out queue.Queue, doer discovery.HTTPDoer, m metrics.Sink, cfg Config) (
 		log = slog.Default()
 	}
 	return &Cycle{
-		out:   out,
-		doer:  doer,
-		m:     m,
-		dedup: cfg.Dedup,
-		cfg:   cfg,
-		log:   log.With("component", "discovery.matches"),
+		out:    out,
+		doer:   doer,
+		m:      m,
+		dedup:  cfg.Dedup,
+		cfg:    cfg,
+		log:    log.With("component", "discovery.matches"),
+		reader: cfg.Reader,
 	}, nil
 }
 
@@ -94,6 +98,17 @@ func (c *Cycle) RunOnce(ctx context.Context) error {
 	}
 	c.log.Info("query returned", "key", key, "count", len(ids))
 
+	// Pre-filter with PostgreSQL to respect existing parsed matches even if Redis resets.
+	if c.reader != nil && len(ids) > 0 {
+		unknownIDs, err := c.reader.UnknownIDs(ctx, ids)
+		if err != nil {
+			c.log.Warn("failed to check unknown ids against db", "err", err)
+		} else {
+			c.log.Info("filtered discovered matches against db", "original", len(ids), "unknown", len(unknownIDs))
+			ids = unknownIDs
+		}
+	}
+
 	pushed := 0
 	skipped := 0
 	for _, id := range ids {
@@ -112,9 +127,8 @@ func (c *Cycle) RunOnce(ctx context.Context) error {
 			c.log.Warn("marshal task", "match_id", id, "err", err)
 			continue
 		}
-		if err := c.out.Push(ctx, payload); err != nil {
-			c.log.Warn("queue push", "match_id", id, "err", err)
-			continue
+		if err := c.out.Publish(ctx, payload); err != nil {
+			return fmt.Errorf("queue publish failed at match_id %d: %w", id, err)
 		}
 		pushed++
 	}

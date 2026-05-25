@@ -4,13 +4,12 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/dmitryikh/leaves"
 	"github.com/user-for-download/go-dota2-analysis/internal/domain"
 )
 
 // Scorer implements scoring.Scorer using a LightGBM model.
 type Scorer struct {
-	ens  *leaves.Ensemble
+	ens  Model
 	spec *domain.FeatureSpec
 	meta ModelMeta
 	dir  string
@@ -30,7 +29,11 @@ func (s *Scorer) Score(_ context.Context, vectors []*domain.FeatureVector) ([]do
 
 	// Validate spec match
 	if !vectors[0].Spec().Equal(s.spec) {
-		return nil, fmt.Errorf("vector spec mismatch: expected %s, got %s", s.spec.Version, vectors[0].Spec().Version)
+		expected := "<nil>"
+		if s.spec != nil {
+			expected = s.spec.Version
+		}
+		return nil, fmt.Errorf("vector spec mismatch: expected %s, got %s", expected, vectors[0].Spec().Version)
 	}
 
 	n := len(vectors)

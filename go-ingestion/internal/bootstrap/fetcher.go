@@ -47,7 +47,7 @@ func BuildFetcher(
 		return nil, fmt.Errorf("fetcher: payload store: %w", err)
 	}
 
-	fetchQ, err := FetchQueue(core.Redis.Master(), cfg.Queue, log)
+	sub, err := FetchQueue(core.Redis.Master(), cfg.Queue, log)
 	if err != nil {
 		return nil, fmt.Errorf("fetcher: fetch queue: %w", err)
 	}
@@ -70,7 +70,7 @@ func BuildFetcher(
 		return nil, fmt.Errorf("fetcher: httpdoer: %w", err)
 	}
 
-	w, err := fetcher.New(fetchQ, parseQ, doer, store, core.Metrics, fetcher.Config{
+	w, err := fetcher.New(sub, parseQ, doer, store, core.Metrics, fetcher.Config{
 		UpstreamURL: cfg.Fetcher.UpstreamURL,
 		Batch:      cfg.Fetcher.Batch,
 		Block:      cfg.Fetcher.Block,

@@ -47,6 +47,13 @@ func New(repo matchstore.MatchWriter, m metrics.Sink, cfg Config) (*Ingester, er
 var _ parser.Ingester = (*Ingester)(nil)
 
 func (i *Ingester) Ingest(ctx context.Context, m matchstore.Match) error {
+	key := strconv.FormatInt(m.MatchID, 10)
+	if i.dedup != nil {
+		if _, err := i.dedup.MarkSeen(ctx, key); err != nil {
+			i.log.Warn("failed to mark match as seen in dedup", "match_id", m.MatchID, "err", err)
+		}
+	}
+
 	err := i.repo.IngestMatch(ctx, m)
 	if err != nil {
 		if isDuplicateConstraint(err) {
@@ -64,13 +71,6 @@ func (i *Ingester) Ingest(ctx context.Context, m matchstore.Match) error {
 		return fmt.Errorf("repo.IngestMatch: %w", err)
 	}
 	i.m.IngestSuccess(ctx)
-
-	if i.dedup != nil {
-		key := strconv.FormatInt(m.MatchID, 10)
-		if _, err := i.dedup.MarkSeen(ctx, key); err != nil {
-			i.log.Warn("failed to mark match as seen in dedup", "match_id", m.MatchID, "err", err)
-		}
-	}
 	return nil
 }
 

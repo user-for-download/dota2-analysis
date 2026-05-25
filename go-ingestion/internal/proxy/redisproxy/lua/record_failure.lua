@@ -20,7 +20,7 @@ redis.call('HSET',     KEYS[2], 'last_error', lastErr)
 
 if maxFails > 0 and streak >= maxFails then
     redis.call('ZREM', KEYS[1], url)
-    redis.call('ZADD', KEYS[3], redis.call('TIME')[1] + coolSecs, url)
+    redis.call('ZADD', KEYS[3], tonumber(redis.call('TIME')[1]) + coolSecs, url)
     return 1
 end
 

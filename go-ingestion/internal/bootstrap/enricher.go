@@ -15,6 +15,7 @@ import (
 	"github.com/user-for-download/go-dota2/internal/enrich/httpclient"
 	"github.com/user-for-download/go-dota2/internal/enrich/sources/dotaconstants"
 	"github.com/user-for-download/go-dota2/internal/proxy"
+	"github.com/user-for-download/go-dota2/internal/storage/refdatastore"
 )
 
 type EnricherDeps struct {
@@ -91,7 +92,6 @@ func BuildEnricher(
 	mainRunner, err := enrich.NewRunner(enrich.RunnerOptions{
 		Sources: remoteSrcs,
 		HTTP:    remoteHTTP,
-		Writer:  repo,
 		Gate:    runGate,
 		Logger:  log,
 	})
@@ -113,7 +113,6 @@ func BuildEnricher(
 		localRunner, err := enrich.NewRunner(enrich.RunnerOptions{
 			Sources: localSrcs,
 			HTTP:    localHTTP,
-			Writer:  repo,
 			Gate:    runGate,
 			Logger:  log,
 		})
@@ -128,7 +127,7 @@ func BuildEnricher(
 	return deps, nil
 }
 
-func buildSources(baseURL string, http enrich.HTTPClient, writer enrich.RefDataWriter) []enrich.RunSource {
+func buildSources(baseURL string, http enrich.HTTPClient, writer refdatastore.RefDataWriter) []enrich.RunSource {
 	return []enrich.RunSource{
 		dotaconstants.NewHeroesSource(baseURL, writer, http),
 		dotaconstants.NewAbilitiesSource(baseURL, writer, http),

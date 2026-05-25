@@ -172,6 +172,16 @@ func (d *Doer) Do(ctx context.Context, req *http.Request) (*http.Response, error
 }
 
 func (d *Doer) doWithLease(ctx context.Context, req *http.Request, attempt int) (*http.Response, error) {
+	// Rewind request body on retry — the first attempt consumes req.Body,
+	// subsequent attempts need a fresh copy. See https://pkg.go.dev/net/http#Request.GetBody
+	if attempt > 1 && req.GetBody != nil {
+		body, err := req.GetBody()
+		if err != nil {
+			return nil, fmt.Errorf("rewind request body: %w", err)
+		}
+		req.Body = body
+	}
+
 	lease, err := d.cfg.Pool.Acquire(ctx, d.cfg.Hold)
 	if err != nil {
 		if errors.Is(err, proxy.ErrNoProxy) {
@@ -235,11 +245,12 @@ func (d *Doer) doDirect(ctx context.Context, req *http.Request) (*http.Response,
 			d.mu.Unlock()
 			return nil, fmt.Errorf("direct: expected *http.Transport, got %T", baseTr)
 		}
-		otelTr := otelhttp.NewTransport(tr)
+		cloned := tr.Clone()
+		otelTr := otelhttp.NewTransport(cloned)
 		client := &http.Client{Transport: otelTr, Timeout: d.cfg.Timeout}
 		directEntry = &httpClientEntry{
 			client:   client,
-			close:    func() { tr.CloseIdleConnections() },
+			close:    func() { cloned.CloseIdleConnections() },
 			lastUsed: time.Now(),
 		}
 		d.transports["__direct__"] = directEntry

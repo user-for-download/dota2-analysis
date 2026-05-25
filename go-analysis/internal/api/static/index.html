@@ -1,27 +1,20 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dota 2 Draft Analyst</title>
-    <script src="/static/js/htmx.min.js"></script>
+    <meta charset="utf-8">
+    <title>Dota 2 Draft Assistant</title>
     <link rel="stylesheet" href="/static/css/style.css">
+    <script src="/static/js/htmx.min.js"></script>
 </head>
 <body>
-    <nav>
-        <a href="/">Home</a>
-        <a href="/draft">Draft Assistant</a>
-        <a href="/teams">Teams</a>
-        <a href="/heroes">Heroes</a>
-    </nav>
-    <main>
-        <h1>Dota 2 Draft Analyst</h1>
-        <p>Select a tool to get started:</p>
-        <ul>
-            <li><a href="/draft">Draft Assistant</a> — Get real-time draft recommendations</li>
-            <li><a href="/teams">Teams</a> — View team draft history and H2H stats</li>
-            <li><a href="/heroes">Heroes</a> — View hero synergy and counter data</li>
-        </ul>
-    </main>
+    <header>
+        <h1>Dota 2 Draft Assistant</h1>
+        <nav>
+            <a href="#" hx-get="/draft.html" hx-target="main" hx-push-url="true">Draft</a>
+            <a href="#" hx-get="/hero.html" hx-target="main" hx-push-url="true">Heroes</a>
+            <a href="#" hx-get="/team.html" hx-target="main" hx-push-url="true">Teams</a>
+        </nav>
+    </header>
+    <main hx-get="/draft.html" hx-trigger="load"></main>
 </body>
 </html>

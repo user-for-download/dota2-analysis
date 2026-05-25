@@ -1,62 +1,42 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Teams — Dota 2 Draft Analyst</title>
-    <script src="/static/js/htmx.min.js"></script>
-    <link rel="stylesheet" href="/static/css/style.css">
-</head>
-<body>
-    <nav>
-        <a href="/">Home</a>
-        <a href="/draft">Draft Assistant</a>
-        <a href="/teams">Teams</a>
-        <a href="/heroes">Heroes</a>
-    </nav>
-    <main>
-        <h1>Team Profiles</h1>
-        <div class="card">
-            <h2>Team Hero History</h2>
-            <form hx-get="/v1/teams/{id}/profile" hx-target="#team-result" hx-swap="innerHTML">
-                <div class="form-group">
-                    <label for="team_id">Team ID:</label>
-                    <input type="number" id="team_id" name="team_id" placeholder="Enter team ID" required>
-                </div>
-                <button type="submit">View Profile</button>
-            </form>
-            <div id="team-result"></div>
+<h2>Team Profiles</h2>
+<div class="card">
+    <h3>Team Hero History</h3>
+    <form hx-get="/v1/teams/{id}/profile" hx-target="#team-result" hx-swap="innerHTML">
+        <div class="form-group">
+            <label for="team_id">Team ID:</label>
+            <input type="number" id="team_id" name="team_id" placeholder="Enter team ID" required>
         </div>
+        <button type="submit">View Profile</button>
+    </form>
+    <div id="team-result"></div>
+</div>
 
-        <div class="card">
-            <h2>Head-to-Head</h2>
-            <form hx-get="/v1/h2h" hx-target="#h2h-result" hx-swap="innerHTML">
-                <div class="form-row">
-                    <div class="form-group">
-                        <label for="team_a">Team A ID:</label>
-                        <input type="number" id="team_a" name="team_a" placeholder="Team A" required>
-                    </div>
-                    <div class="form-group">
-                        <label for="team_b">Team B ID:</label>
-                        <input type="number" id="team_b" name="team_b" placeholder="Team B" required>
-                    </div>
-                </div>
-                <button type="submit">Compare</button>
-            </form>
-            <div id="h2h-result"></div>
+<div class="card">
+    <h3>Head-to-Head</h3>
+    <form hx-get="/v1/h2h" hx-target="#h2h-result" hx-swap="innerHTML">
+        <div class="form-row">
+            <div class="form-group">
+                <label for="team_a">Team A ID:</label>
+                <input type="number" id="team_a" name="team_a" placeholder="Team A" required>
+            </div>
+            <div class="form-group">
+                <label for="team_b">Team B ID:</label>
+                <input type="number" id="team_b" name="team_b" placeholder="Team B" required>
+            </div>
         </div>
+        <button type="submit">Compare</button>
+    </form>
+    <div id="h2h-result"></div>
+</div>
 
-        <div class="card">
-            <h2>Player Profile</h2>
-            <form hx-get="/v1/players/{id}/profile" hx-target="#player-result" hx-swap="innerHTML">
-                <div class="form-group">
-                    <label for="account_id">Player Account ID:</label>
-                    <input type="number" id="account_id" name="account_id" placeholder="Enter account ID" required>
-                </div>
-                <button type="submit">View Profile</button>
-            </form>
-            <div id="player-result"></div>
+<div class="card">
+    <h3>Player Profile</h3>
+    <form hx-get="/v1/players/{id}/profile" hx-target="#player-result" hx-swap="innerHTML">
+        <div class="form-group">
+            <label for="account_id">Player Account ID:</label>
+            <input type="number" id="account_id" name="account_id" placeholder="Enter account ID" required>
         </div>
-    </main>
-</body>
-</html>
+        <button type="submit">View Profile</button>
+    </form>
+    <div id="player-result"></div>
+</div>

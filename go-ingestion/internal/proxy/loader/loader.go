@@ -71,25 +71,26 @@ func (l *Loader) Run(ctx context.Context) error {
 	}
 	l.log.Info("seed phase complete", "healthy", len(seedHealthy), "total", len(seed))
 
+	var allHealthy []string
 	if l.cfg.Remote == nil {
-		size, _ := l.pool.Size(ctx)
-		l.log.Info("run complete", "pool_size", size)
-		return nil
+		allHealthy = seedHealthy
+	} else {
+		remote, rerr := l.loadRemoteWithFallback(ctx, seedHealthy)
+		if rerr != nil {
+			l.log.Warn("remote fetch failed; keeping seed-only pool", "err", rerr)
+			allHealthy = seedHealthy
+		} else {
+			fresh := filterOut(remote, toSet(seedHealthy))
+			remoteHealthy, _ := l.validateAndPublishChunks(ctx, fresh, "remote")
+			allHealthy = append(seedHealthy, remoteHealthy...)
+		}
 	}
-	remote, rerr := l.loadRemoteWithFallback(ctx, seedHealthy)
-	if rerr != nil {
-		l.log.Warn("remote fetch failed; keeping seed-only pool",
-			"err", rerr, "seed_healthy", len(seedHealthy))
-		size, _ := l.pool.Size(ctx)
-		l.log.Info("run complete", "pool_size", size)
-		return nil
-	}
-	l.log.Info("remote list loaded", "count", len(remote))
 
-	fresh := filterOut(remote, toSet(seedHealthy))
-	if _, err := l.validateAndPublishChunks(ctx, fresh, "remote"); err != nil {
-		l.log.Warn("remote chunk validation partially failed", "err", err)
+	// Atomically evict proxies that did not pass this validation cycle
+	if err := l.pool.Replace(ctx, allHealthy); err != nil {
+		l.log.Warn("failed to evict dead proxies via Replace", "err", err)
 	}
+
 	size, _ := l.pool.Size(ctx)
 	l.log.Info("run complete", "pool_size", size)
 	return nil

@@ -1,17 +1,76 @@
+# ─── OS / Editor ───
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.idea/
+.vscode/
+*.iml
+
+# ─── Go Build Artifacts ───
 *.exe
 *.test
 *.out
-.DS_Store
-.env
-.env.local
-.vscode/
-.idea/
-dump_out/
-*.json
-.dumperrc
-proxy.txt
-prc.json
-.opencode
+*.prof
+*.testbin
 /bin/
+/dist/
+vendor/
+
+# ─── Python ───
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# ─── Secrets & Local Config ───
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.cert
+
+# ─── Proxy lists (NEVER commit real proxies) ───
+proxy.txt
+!proxy.txt.example
+go-ingestion/config/proxy.txt
+!go-ingestion/config/proxy.txt.example
+
+# ─── External reference data (fetched, not committed) ───
+go-ingestion/assets/dotaconstants/*.json
+!go-ingestion/assets/dotaconstants/.gitkeep
+
+# ─── Model artifacts (deployed, not versioned) ───
+go-analysis/assets/models/imitation/current/*
+go-analysis/assets/models/value/current/*
+!go-analysis/assets/models/*/current/.gitkeep
+
+# ─── Debug / Temp ───
+dump_out/
+*.dump
+*.log
+/dump/
 /tmp/
-deploy/proxy.txt
+.opencode
+# ─── Docker ───
+.docker/
+*.tar
+
+# ─── Reports & Coverage ───
+coverage.out
+coverage.html
+coverage/
+
+# ─── Orphan project files ───
+prc.json
+tools/prc.json
+.dumperrc
+
+# ─── IDE / Tooling ───
+.opencode
+.zed

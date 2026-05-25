@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/user-for-download/go-dota2/internal/client"
@@ -64,7 +65,7 @@ func NewMatchClient(cfg Config) (*MatchClient, error) {
 var _ client.MatchClient = (*MatchClient)(nil)
 
 func (c *MatchClient) GetMatch(ctx context.Context, matchID int64) ([]byte, error) {
-	targetURL := fmt.Sprintf(c.baseURL, matchID)
+	targetURL := c.baseURL + "/" + strconv.FormatInt(matchID, 10)
 
 	var lastErr error
 	for attempt := 0; attempt < c.cfg.MaxRetries; attempt++ {

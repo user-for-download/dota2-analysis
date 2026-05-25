@@ -1,6 +1,6 @@
 # Architecture
 
-`go-dota2` is a distributed match-data ingestion pipeline composed of small,
+`go-ingestion` is a distributed match-data ingestion pipeline composed of small,
 single-purpose binaries that communicate through Redis. This document describes
 the system's structure, data flow, and the rationale behind key design choices.
 
@@ -85,6 +85,28 @@ testing without a proxy pool. Currently only the **matches** cycle has
 an implementation (`internal/worker/discovery/matches/`); leagues, teams,
 and proplayers cycles are planned but not yet coded.
 
+#### PostgreSQL Pre-Filtering (Redis-Flush Resilience)
+
+The matches cycle consults PostgreSQL **before** the Redis dedup layer.
+After fetching candidate match IDs from the explorer API, the cycle calls
+`matchstore.MatchReader.UnknownIDs()` to filter out matches that either
+do not exist yet in the database or have `is_parsed = FALSE`. This means
+that even if Redis is flushed (wiping the `dedup` seen-set), the
+discoverer will not re-enqueue matches that are already fully parsed in
+PostgreSQL — the true source of truth.
+
+```
+Explorer API → fetchMatchIDs() → DB UnknownIDs filter → Redis dedup → Queue
+                                      ↑                       ↑
+                               PostgreSQL source      ephemeral cache
+                               of truth                (can be flushed)
+```
+
+The DB connection is established whenever `POSTGRES_DSN` is set, regardless
+of whether other DB-backed cycles (leagues, teams, pro-players) are
+enabled. If the connection fails, the discoverer logs a warning and
+operates without DB filtering, relying solely on the Redis dedup set.
+
 Creates a root `cycle.run` span in OpenTelemetry to enable end-to-end
 trace visualization.
 
@@ -148,7 +170,7 @@ backward compatibility. The `initmarker` package provides
 ### `migrator`
 
 Runs once at deploy time. Discovers numbered SQL files in
-`deploy/migrations/`, compares them against the `schema_migrations` table,
+`go-core/schema/migrations/`, compares them against the `schema_migrations` table,
 and applies any pending migrations inside a transaction.
 
 ## Package Layout
@@ -205,9 +227,12 @@ implementations ("adapters") in subpackages (e.g., `matchpg`, `lookuppg`,
 
 A single match traverses the system as follows:
 
-1. `discoverer` runs an SQL query, gets `match_id = 12345`, and pushes
-   `{"match_id": 12345}` to `dota2:fetch`. The W3C `traceparent` header
-   is injected into the Redis Stream message.
+1. `discoverer` runs an SQL query, gets `match_id = 12345`. Before pushing
+   to the queue, it checks PostgreSQL via `UnknownIDs()` to confirm the
+   match either doesn't exist or has `is_parsed = FALSE`. If already
+   parsed, the match is skipped. Otherwise `{"match_id": 12345}` is
+   pushed to `dota2:fetch`. The W3C `traceparent` header is injected
+   into the Redis Stream message.
 2. `fetcher` pops the task, extracts the trace context, and creates a
    child span `worker.process`. It leases a proxy from `dota2:proxy:set`,
    and `GET`s `<UPSTREAM>/12345` via `otelhttp` (creating another child span).
@@ -226,7 +251,7 @@ to the corresponding DLQ stream.
 ## Storage Model
 
 - **Postgres** — durable store for matches and reference data. Schemas
-  live in `deploy/migrations/`. Storage uses a **ports-and-adapters** layout:
+  live in `go-core/schema/migrations/`. Storage uses a **ports-and-adapters** layout:
 
   | Port | Adapter | Purpose |
   |------|---------|---------|
@@ -340,6 +365,18 @@ IsSeen(ctx, key)   (bool, error)
 
 The Redis implementation uses either a `SET` member (no TTL) or per-key
 `SETNX` (TTL).
+
+#### Two-Layer Dedup in the Discoverer
+
+The matches cycle uses a two-layer dedup strategy. The **primary** check
+is PostgreSQL via `matchstore.MatchReader.UnknownIDs()`: match IDs
+already in the database with `is_parsed = TRUE` are filtered out before
+any Redis operation. The **secondary** check is the Redis `dedup.Seen`
+set, which catches matches already enqueued in the current cycle's
+lifetime. This layered approach tolerates a Redis flush — the only
+consequence is a single extra `SELECT` query to PostgreSQL for each
+discovery cycle, rather than mass re-enqueuing of already-processed
+matches.
 
 ### Bootstrap & Wait
 
@@ -457,4 +494,5 @@ implement `queue.Queue` in a new package and update the bootstrap
 helpers — no worker code changes.
 
 **Adding a database column.** Create a new numbered file in
-`deploy/migrations/`. The next `migrator` run picks it up automatically.
+`go-core/schema/migrations/` (`make new-migration NAME=add_column`
+from the repo root). The next `migrator` run picks it up automatically.

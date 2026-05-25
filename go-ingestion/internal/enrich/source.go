@@ -21,28 +21,7 @@ type RunSource interface {
 
 type Deps struct {
 	HTTP   HTTPClient
-	Writer RefDataWriter
 	Logger *slog.Logger
-}
-
-type RefDataWriter interface {
-	UpsertHeroes(ctx context.Context, heroes []HeroRef) error
-	UpsertHeroStats(ctx context.Context, hs []HeroStatRef) error
-	UpsertHeroAbilities(ctx context.Context, ha []HeroAbilityRef) error
-	UpsertHeroTalents(ctx context.Context, ht []HeroTalentRef) error
-	UpsertHeroFacets(ctx context.Context, hf []HeroFacetRef) error
-	UpsertAbilities(ctx context.Context, a []AbilityRef) error
-	UpsertAbilityIDs(ctx context.Context, ai []AbilityIDRef) error
-	UpsertItems(ctx context.Context, items []ItemRef) error
-	UpsertItemIDs(ctx context.Context, ii []ItemIDRef) error
-	UpsertPatches(ctx context.Context, p []PatchRef) error
-	UpsertTeams(ctx context.Context, teams []TeamRef) error
-	UpsertLeagues(ctx context.Context, leagues []LeagueRef) error
-	UpsertNotablePlayers(ctx context.Context, np []NotablePlayerRef) error
-	UpsertProPlayers(ctx context.Context, pp []ProPlayerRef) error
-	UpsertGameModes(ctx context.Context, gm []GameModeRef) error
-	UpsertLobbyTypes(ctx context.Context, lt []LobbyTypeRef) error
-	UpsertRegions(ctx context.Context, reg []RegionRef) error
 }
 
 type HeroesWriter interface {

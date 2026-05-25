@@ -1,8 +1,0 @@
-# Shared Dockerfiles for the monorepo
-#
-# Each sub-project maintains its own Dockerfiles under:
-#   go-ingestion/deploy/dockerfiles/
-#   go-analysis/deploy/dockerfiles/
-#
-# This directory is for Dockerfiles that span the full stack
-# (e.g., a unified multi-stage build that produces all binaries).

@@ -14,6 +14,8 @@ import (
 	"github.com/user-for-download/go-dota2/internal/queue"
 	"github.com/user-for-download/go-dota2/internal/storage/herostatstore"
 	"github.com/user-for-download/go-dota2/internal/storage/leaguestore"
+	"github.com/user-for-download/go-dota2/internal/storage/matchstore"
+	"github.com/user-for-download/go-dota2/internal/storage/pgclient"
 	"github.com/user-for-download/go-dota2/internal/storage/proplayerstore"
 	"github.com/user-for-download/go-dota2/internal/storage/teamstore"
 	"github.com/user-for-download/go-dota2/internal/worker/discovery"
@@ -30,7 +32,7 @@ func BuildDiscoverer(
 	ctx context.Context,
 	cfg *config.Config,
 	log *slog.Logger,
-	fetchQ queue.Queue,
+	fetchQ queue.Publisher,
 	doer discovery.HTTPDoer,
 	dedupSeen dedup.Seen,
 	metricS metrics.Sink,
@@ -38,6 +40,27 @@ func BuildDiscoverer(
 	fileKey string,
 ) (*DiscovererDeps, error) {
 	deps := &DiscovererDeps{}
+
+	var pg *pgxpool.Pool
+	if cfg.Postgres.DSN != "" {
+		var err error
+		pg, err = WaitForPostgres(ctx, cfg.Postgres, WaitConfig{
+			Timeout:      0,
+			PollInterval: 30 * time.Second,
+		}, log)
+		if err != nil {
+			log.Warn("Postgres not available; DB cycles disabled and DB deduplication disabled", "err", err)
+			pg = nil
+		}
+		deps.Pool = pg
+	} else {
+		log.Warn("Postgres DSN not provided; running without DB deduplication and DB cycles")
+	}
+
+	var matchReader matchstore.MatchReader
+	if pg != nil {
+		matchReader = pgclient.NewStores(pg, log).Matches
+	}
 
 	mc, err := matches.New(fetchQ, doer, metricS, matches.Config{
 		ExplorerURL: cfg.Discovery.UpstreamURL,
@@ -48,31 +71,13 @@ func BuildDiscoverer(
 		Logger:      log,
 		Dedup:       dedupSeen,
 		FileKey:     fileKey,
+		Reader:      matchReader,
 	})
 	if err != nil {
 		return nil, err
 	}
 	deps.Matches = mc
 	deps.Cycles = append(deps.Cycles, mc)
-
-	needsPG := cfg.Discovery.LeagueQueriesDir != "" ||
-		cfg.Discovery.TeamQueriesDir != "" ||
-		cfg.Discovery.ProPlayerURL != "" ||
-		cfg.Discovery.HeroStatsURL != ""
-
-	var pg *pgxpool.Pool
-	if needsPG {
-		var err error
-		pg, err = WaitForPostgres(ctx, cfg.Postgres, WaitConfig{
-			Timeout:      0,
-			PollInterval: 30 * time.Second,
-		}, log)
-		if err != nil {
-			log.Warn("Postgres not available; DB cycles disabled", "err", err)
-			pg = nil
-		}
-		deps.Pool = pg
-	}
 
 	if pg != nil && cfg.Discovery.LeagueQueriesDir != "" {
 		lq, err := discovery.LoadQueries(cfg.Discovery.LeagueQueriesDir)

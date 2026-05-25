@@ -42,7 +42,11 @@ func (s *TeamPicksSource) Compute(ctx context.Context, st *domain.DraftState, ca
 	}
 	result := make(map[domain.HeroID]float64, len(candidates))
 	for _, h := range candidates {
-		result[h] = float64(stats[h].Games)
+		if stat, ok := stats[h]; ok {
+			result[h] = float64(stat.Games)
+		} else {
+			result[h] = 0 // no data = zero games
+		}
 	}
 	return result, nil
 }
@@ -70,7 +74,11 @@ func (s *TeamWRShrunkSource) Compute(ctx context.Context, st *domain.DraftState,
 	}
 	result := make(map[domain.HeroID]float64, len(candidates))
 	for _, h := range candidates {
-		result[h] = stats[h].WRShrunk
+		if stat, ok := stats[h]; ok {
+			result[h] = stat.WRShrunk
+		} else {
+			result[h] = 0.5 // neutral prior for unseen heroes
+		}
 	}
 	return result, nil
 }
@@ -116,7 +124,7 @@ func (s *CounterSource) Def() domain.FeatureDef {
 }
 
 func (s *CounterSource) Compute(ctx context.Context, st *domain.DraftState, candidates []domain.HeroID) (map[domain.HeroID]float64, error) {
-	result, err := s.repo.CounterAvgBatch(ctx, st.EnemyPicks(), candidates)
+	result, err := s.repo.CounterAvgBatch(ctx, candidates, st.EnemyPicks())
 	if err != nil {
 		return nil, fmt.Errorf("counter: %w", err)
 	}

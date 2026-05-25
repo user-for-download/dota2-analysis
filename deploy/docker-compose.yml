@@ -1,0 +1,277 @@
+name: dota2-analysis
+
+x-common-env: &common-env
+    APP_ENV: ${APP_ENV:-production}
+    LOG_LEVEL: ${LOG_LEVEL:-info}
+    OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-jaeger:4318}
+
+x-restart: &restart
+    restart: unless-stopped
+
+x-logging: &logging
+    logging:
+        driver: json-file
+        options:
+            max-size: "10m"
+            max-file: "3"
+
+services:
+    # ───── Infrastructure ─────
+
+    redis:
+        image: redis:7-alpine
+        container_name: dota2-redis
+        <<: [*restart, *logging]
+        profiles: [infra, ingestion, analytics, all]
+        command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+        volumes:
+            - redis-data:/data
+        ports:
+            - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+        healthcheck:
+            test: ["CMD", "redis-cli", "ping"]
+            interval: 5s
+            timeout: 3s
+            retries: 5
+        networks: [dota2-net]
+
+    postgres:
+        image: postgres:16-alpine
+        container_name: dota2-postgres
+        <<: [*restart, *logging]
+        profiles: [infra, ingestion, analytics, all]
+        environment:
+            POSTGRES_DB: ${POSTGRES_DB:-dota2}
+            POSTGRES_USER: ${POSTGRES_USER:-dota2}
+            POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dota2}
+        volumes:
+            - pg-data:/var/lib/postgresql/data
+        ports:
+            - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+        healthcheck:
+            test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-dota2}"]
+            interval: 5s
+            timeout: 3s
+            retries: 5
+        networks: [dota2-net]
+
+    jaeger:
+        image: jaegertracing/all-in-one:latest
+        container_name: dota2-jaeger
+        <<: [*restart, *logging]
+        profiles: [infra, ingestion, analytics, all]
+        ports:
+            - "127.0.0.1:16686:16686"
+            - "127.0.0.1:4318:4318"
+        networks: [dota2-net]
+
+    # ───── Schema ─────
+
+    migrator:
+        image: go-dota2-migrator:${TAG:-latest}
+        <<: *logging
+        profiles: [migrate, ingestion, analytics, all]
+        restart: "no"
+        env_file:
+            - path: deploy/.env
+              required: false
+        environment:
+            <<: *common-env
+            POSTGRES_HOST: postgres
+            POSTGRES_DB: ${POSTGRES_DB:-dota2}
+            POSTGRES_USER: ${POSTGRES_USER:-dota2}
+            POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dota2}
+            POSTGRES_SSLMODE: ${POSTGRES_SSLMODE:-disable}
+        depends_on:
+            postgres:
+                condition: service_healthy
+        networks: [dota2-net]
+
+    # ───── Ingestion Pipeline ─────
+
+    proxyloader:
+        image: go-dota2-proxyloader:${TAG:-latest}
+        <<: [*restart, *logging]
+        profiles: [ingestion, all]
+        env_file:
+            - path: deploy/.env
+              required: false
+        environment:
+            <<: *common-env
+            REDIS_ADDRS: ${REDIS_ADDRS:-redis:6379}
+        configs:
+            - source: proxy_list
+              target: /app/proxy.txt
+        depends_on:
+            redis: { condition: service_healthy }
+        networks: [dota2-net]
+
+    discoverer:
+        image: go-dota2-discoverer:${TAG:-latest}
+        <<: [*restart, *logging]
+        profiles: [ingestion, all]
+        env_file:
+            - path: deploy/.env
+              required: false
+        environment:
+            <<: *common-env
+            REDIS_ADDRS: ${REDIS_ADDRS:-redis:6379}
+            DISCOVERY_UPSTREAM_URL: ${DISCOVERY_UPSTREAM_URL:-https://api.opendota.com/api/explorer}
+            DISCOVERY_QUERIES_DIR: /queries/matches
+            DISCOVERY_DEFAULT_KEY: default
+            DISCOVERY_INTERVAL: ${DISCOVERY_INTERVAL:-24h}
+            DISCOVERY_RUN_AT_START: ${DISCOVERY_RUN_AT_START:-true}
+            DISCOVERY_HTTP_TIMEOUT: ${DISCOVERY_HTTP_TIMEOUT:-30s}
+            DISCOVERY_LEAGUE_QUERIES_DIR: /queries/leagues
+            DISCOVERY_LEAGUE_INTERVAL: ${DISCOVERY_LEAGUE_INTERVAL:-6h}
+            DISCOVERY_TEAM_QUERIES_DIR: /queries/teams
+            DISCOVERY_TEAM_INTERVAL: ${DISCOVERY_TEAM_INTERVAL:-6h}
+            POSTGRES_DSN: postgresql://${POSTGRES_USER:-dota2}:${POSTGRES_PASSWORD:-dota2}@postgres:5432/${POSTGRES_DB:-dota2}
+        volumes:
+            - ./go-ingestion/assets/queries:/queries:ro
+        depends_on:
+            redis: { condition: service_healthy }
+            postgres: { condition: service_healthy }
+            migrator: { condition: service_completed_successfully }
+        networks: [dota2-net]
+
+    enricher:
+        image: go-dota2-enricher:${TAG:-latest}
+        <<: [*restart, *logging]
+        profiles: [ingestion, all]
+        env_file:
+            - path: deploy/.env
+              required: false
+        environment:
+            <<: *common-env
+            REDIS_ADDRS: ${REDIS_ADDRS:-redis:6379}
+            ENRICH_DOTACONSTANTS_BASE_URL: ${ENRICH_DOTACONSTANTS_BASE_URL:-https://raw.githubusercontent.com/odota/dotaconstants/master/build}
+            ENRICH_LOCAL_DIR: /dotaconstants
+            POSTGRES_DSN: postgresql://${POSTGRES_USER:-dota2}:${POSTGRES_PASSWORD:-dota2}@postgres:5432/${POSTGRES_DB:-dota2}
+        volumes:
+            - ./go-ingestion/assets/dotaconstants:/dotaconstants:ro
+        depends_on:
+            redis: { condition: service_healthy }
+            postgres: { condition: service_healthy }
+            migrator: { condition: service_completed_successfully }
+        networks: [dota2-net]
+
+    fetcher:
+        image: go-dota2-fetcher:${TAG:-latest}
+        <<: [*restart, *logging]
+        profiles: [ingestion, all]
+        env_file:
+            - path: deploy/.env
+              required: false
+        environment:
+            <<: *common-env
+            REDIS_ADDRS: ${REDIS_ADDRS:-redis:6379}
+            QUEUE_CONSUMER: fetcher-${HOSTNAME:-default}
+            FETCHER_UPSTREAM_URL: ${FETCHER_UPSTREAM_URL:-https://api.opendota.com/api/matches}
+            FETCHER_BATCH: ${FETCHER_BATCH:-10}
+            FETCHER_BLOCK: ${FETCHER_BLOCK:-2s}
+            FETCHER_HTTP_TIMEOUT: ${FETCHER_HTTP_TIMEOUT:-15s}
+            FETCHER_PAYLOAD_TTL: ${FETCHER_PAYLOAD_TTL:-1h}
+            FETCHER_WAIT_TIMEOUT: ${FETCHER_WAIT_TIMEOUT:-5m}
+        depends_on:
+            redis: { condition: service_healthy }
+            migrator: { condition: service_completed_successfully }
+        networks: [dota2-net]
+
+    parser:
+        image: go-dota2-parser:${TAG:-latest}
+        <<: [*restart, *logging]
+        profiles: [ingestion, all]
+        env_file:
+            - path: deploy/.env
+              required: false
+        environment:
+            <<: *common-env
+            REDIS_ADDRS: ${REDIS_ADDRS:-redis:6379}
+            QUEUE_CONSUMER: parser-${HOSTNAME:-default}
+            POSTGRES_DSN: postgresql://${POSTGRES_USER:-dota2}:${POSTGRES_PASSWORD:-dota2}@postgres:5432/${POSTGRES_DB:-dota2}
+        depends_on:
+            redis: { condition: service_healthy }
+            migrator: { condition: service_completed_successfully }
+        networks: [dota2-net]
+
+    # ───── Analytics Pipeline ─────
+
+    api:
+        image: go-dota2-analysis-api:${TAG:-latest}
+        container_name: dota2-analysis-api
+        <<: [*restart, *logging]
+        profiles: [analytics, all]
+        env_file:
+            - path: deploy/.env
+              required: false
+        environment:
+            <<: *common-env
+            POSTGRES_DSN: postgresql://${POSTGRES_USER:-dota2}:${POSTGRES_PASSWORD:-dota2}@postgres:5432/${POSTGRES_DB:-dota2}
+            API_TOKEN: ${API_TOKEN:-changeme}
+            API_BIND: 0.0.0.0:8080
+            ANALYTICS_PATCH_ID: ${ANALYTICS_PATCH_ID:-72}
+            ANALYTICS_SCORER_KIND: ${ANALYTICS_SCORER_KIND:-linear}
+            ANALYTICS_MODEL_DIR: /models/imitation/current
+            ANALYTICS_VALUE_MODEL_DIR: /models/value/current
+        ports:
+            - "0.0.0.0:${ANALYSIS_API_PORT:-8080}:8080"
+        volumes:
+            - ./go-analysis/assets/models:/models:ro
+        depends_on:
+            postgres: { condition: service_healthy }
+            migrator: { condition: service_completed_successfully }
+        networks: [dota2-net]
+
+    featurizer:
+        image: go-dota2-analysis-featurizer:${TAG:-latest}
+        container_name: dota2-analysis-featurizer
+        <<: [*restart, *logging]
+        profiles: [analytics, all]
+        env_file:
+            - path: deploy/.env
+              required: false
+        environment:
+            <<: *common-env
+            POSTGRES_DSN: postgresql://${POSTGRES_USER:-dota2}:${POSTGRES_PASSWORD:-dota2}@postgres:5432/${POSTGRES_DB:-dota2}
+            ANALYTICS_PATCH_ID: ${ANALYTICS_PATCH_ID:-72}
+            ANALYTICS_FEATURIZER_INTERVAL: ${ANALYTICS_FEATURIZER_INTERVAL:-24h}
+        depends_on:
+            postgres: { condition: service_healthy }
+            migrator: { condition: service_completed_successfully }
+        networks: [dota2-net]
+
+    backtester:
+        image: go-dota2-analysis-backtester:${TAG:-latest}
+        container_name: dota2-analysis-backtester
+        <<: *logging
+        profiles: [analytics]
+        restart: "no"
+        env_file:
+            - path: deploy/.env
+              required: false
+        environment:
+            <<: *common-env
+            POSTGRES_DSN: postgresql://${POSTGRES_USER:-dota2}:${POSTGRES_PASSWORD:-dota2}@postgres:5432/${POSTGRES_DB:-dota2}
+            ANALYTICS_PATCH_ID: ${ANALYTICS_PATCH_ID:-72}
+            ANALYTICS_SCORER_KIND: ${ANALYTICS_SCORER_KIND:-linear}
+            ANALYTICS_MODEL_DIR: /models/imitation/current
+            BACKTEST_PATCH_ID: ${BACKTEST_PATCH_ID:-}
+        volumes:
+            - ./go-analysis/assets/models:/models:ro
+        depends_on:
+            postgres: { condition: service_healthy }
+            migrator: { condition: service_completed_successfully }
+        networks: [dota2-net]
+
+volumes:
+    redis-data:
+    pg-data:
+
+configs:
+    proxy_list:
+        file: ./go-ingestion/config/proxy.txt
+
+networks:
+    dota2-net:
+        driver: bridge

@@ -7,8 +7,7 @@ dota2-analysis/
 ├── go-core/          ← Shared module: domain types, bootstrap, schema migrations, migrator
 ├── go-analysis/      ← Analytics pipeline (features, models, draft recommendations)
 ├── go-ingestion/     ← Data ingestion pipeline (fetches matches, parses, enriches)
-├── deploy/           ← Shared deployment artifacts (dotaconstants, queries, bake config)
-├── docker-compose.yml ← Canonical orchestration for the full stack
+├── deploy/           ← docker-bake.hcl + docker-compose.yml (canonical orchestration)
 ├── Makefile          ← Unified build/run/test targets
 └── go.work           ← Go workspace wiring all three modules
 ```
@@ -51,24 +50,45 @@ go-analysis  ──requires──> go-core
 go build ./go-core/... ./go-analysis/... ./go-ingestion/...
 
 # Test all modules
-go test ./go-core/... -short
-go test ./go-analysis/... -short
-go test ./go-ingestion/... -short
+make test
 
-# Start full stack via Docker
-docker compose up -d
+# Vet all modules
+make vet
 ```
 
-### Production Builds
+### Full Stack with Docker
 
 ```bash
 # Build all Docker images
-docker buildx bake -f deploy/docker-bake.hcl --load
+make build
 
-# Or per-project:
-cd go-ingestion && docker buildx bake --file deploy/docker-bake.hcl --load
-cd go-analysis  && docker buildx bake --file deploy/docker-bake.hcl --load
+# Start everything (infra → migrate → ingestion → analytics)
+make up
+
+# Follow logs
+make logs
+
+# Stop everything
+make down
 ```
+
+### Building Specific Groups
+
+```bash
+# Build only ingestion images
+make build-ingestion
+
+# Build only analysis images
+make build-analysis
+```
+
+Bake groups correspond to the groups in `deploy/docker-bake.hcl`:
+
+| Group | Targets |
+|-------|---------|
+| `ingestion` | base, discoverer, fetcher, parser, enricher, proxyloader, dlq, ingestion-migrator |
+| `analysis` | base, api, featurizer, backtester |
+| `all-images` | ingestion + analysis + migrator (same as default) |
 
 ## Module Resolution
 
@@ -76,7 +96,7 @@ The workspace uses:
 - **`go.work`** — lists all three modules for local development
 - **`replace` directives** in downstream `go.mod` files — point `go-core` to the local directory
 - **GOPROXY** — resolves third-party dependencies at build time
-- **No `vendor/` directories** — vendoring is not used
+- **No `vendor/` directories** — vendoring is not used (see `go-core/ARCHITECTURE.md` for the workspace vendor caveat)
 
 ## Schema Contract
 
@@ -123,21 +143,78 @@ Typed IDs (`domain.HeroID`, `domain.MatchID`) should be used at public API bound
 
 | Target | Description |
 |--------|-------------|
-| `build` | Build all Docker images |
-| `test` | Unit tests for all modules |
-| `vet` | go vet for all modules |
-| `migrate` | Run schema migrations |
-| `new-migration` | Scaffold a new migration file |
-| `up` | Start full stack |
-| `down` | Stop full stack |
+| **Build** | |
+| `build` | Build all Docker images (root bake file, all groups) |
+| `build-ingestion` | Build only ingestion Docker images |
+| `build-analysis` | Build only analysis Docker images |
+| **Bootstrap** | |
+| `bootstrap` | Fetch external data before first run (fetch-constants + fetch-proxies) |
+| `fetch-constants` | Download dotaconstants JSON to `go-ingestion/assets/dotaconstants/` |
+| `fetch-proxies` | Download proxy list to `go-ingestion/config/proxy.txt` |
+| **Lifecycle** | |
+| `infra` | Start Postgres + Redis + Jaeger |
+| `migrate` | Run database migrations (one-shot) |
+| `ingestion` | Start the ingestion pipeline (discoverer, fetcher, parser, enricher, proxyloader) |
+| `analytics` | Start the analytics pipeline (api, featurizer) |
+| `up` | Full stack: infra → migrate → ingestion → analytics |
+| `upd` | Full stack detached |
+| `down` | Stop everything |
+| `downv` | Stop everything and remove volumes |
 | `logs` | Follow all logs |
-| `publish-core` | Tag and publish go-core module |
+| **ML** | |
+| `backtest` | Run backtester (one-shot) against current model |
+| `train` | Train new LightGBM model (one-shot, via go-analysis compose) |
+| **Shell** | |
+| `shell-db` | Open psql shell |
+| `shell-redis` | Open redis-cli |
+| **Validate** | |
+| `test` | Unit tests for all modules (workspace root) |
+| `vet` | go vet for all modules |
+| **Schema** | |
+| `new-migration` | Scaffold a new migration file (NAME=snake_case) |
+| **Publish** | |
+| `publish-core` | Tag and push go-core module |
+| **Other** | |
+| `vendor` | No-op — explains module resolution |
+| `armageddon` | ⚠️ Nuke all Docker resources for this project |
+| `help` | Show all targets |
+
+## Docker Images
+
+All images are built via `deploy/docker-bake.hcl` with the `go-dota2-*` naming convention:
+
+| Image | Source |
+|-------|--------|
+| `go-dota2-ingestion-base` | Builder with all ingestion binaries |
+| `go-dota2-discoverer` | Match discovery service |
+| `go-dota2-fetcher` | Match data fetcher |
+| `go-dota2-parser` | Match parser |
+| `go-dota2-enricher` | Match enricher |
+| `go-dota2-proxyloader` | Proxy rotation service |
+| `go-dota2-dlq` | Dead letter queue handler |
+| `go-dota2-ingestion-migrator` | Ingestion-specific migrator |
+| `go-dota2-migrator` | Canonical migrator (used by `docker-compose.yml`) |
+| `go-dota2-analysis-base` | Builder with all analysis binaries |
+| `go-dota2-analysis-api` | Draft recommendation API |
+| `go-dota2-analysis-featurizer` | Feature computation service |
+| `go-dota2-analysis-backtester` | Backtesting (one-shot) |
+
+### Build Cache
+
+The bake file supports GitHub Actions cache:
+```bash
+docker buildx bake -f deploy/docker-bake.hcl --load \
+  --set *.cache-from=type=gha \
+  --set *.cache-to=type=gha,mode=max
+```
 
 ## CI/CD
 
 The monorepo uses a unified GitHub Actions workflow (`.github/workflows/ci.yml`) that:
 
 - Builds and tests all three modules in a matrix
-- Runs contract tests against real Postgres
+- Runs contract tests against real Postgres (service container)
 - Lints all modules with golangci-lint
+- Enforces module boundaries (`TestCoreHasNoDownstreamImports`)
 - Builds Docker images on main branch after tests pass
+- Runs Renovate bot weekly for dependency updates

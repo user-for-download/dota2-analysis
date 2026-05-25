@@ -26,26 +26,6 @@ type emptyReader struct{}
 
 func (emptyReader) Read(p []byte) (int, error) { return 0, io.EOF }
 
-type fakeWriter struct{}
-
-func (fakeWriter) UpsertHeroes(context.Context, []HeroRef) error                  { return nil }
-func (fakeWriter) UpsertItems(context.Context, []ItemRef) error                   { return nil }
-func (fakeWriter) UpsertLeagues(context.Context, []LeagueRef) error               { return nil }
-func (fakeWriter) UpsertTeams(context.Context, []TeamRef) error                   { return nil }
-func (fakeWriter) UpsertPatches(context.Context, []PatchRef) error                { return nil }
-func (fakeWriter) UpsertAbilities(context.Context, []AbilityRef) error            { return nil }
-func (fakeWriter) UpsertHeroAbilities(context.Context, []HeroAbilityRef) error    { return nil }
-func (fakeWriter) UpsertHeroTalents(context.Context, []HeroTalentRef) error       { return nil }
-func (fakeWriter) UpsertHeroFacets(context.Context, []HeroFacetRef) error         { return nil }
-func (fakeWriter) UpsertAbilityIDs(context.Context, []AbilityIDRef) error         { return nil }
-func (fakeWriter) UpsertNotablePlayers(context.Context, []NotablePlayerRef) error { return nil }
-func (fakeWriter) UpsertProPlayers(context.Context, []ProPlayerRef) error         { return nil }
-func (fakeWriter) UpsertHeroStats(context.Context, []HeroStatRef) error           { return nil }
-func (fakeWriter) UpsertGameModes(context.Context, []GameModeRef) error           { return nil }
-func (fakeWriter) UpsertLobbyTypes(context.Context, []LobbyTypeRef) error         { return nil }
-func (fakeWriter) UpsertRegions(context.Context, []RegionRef) error               { return nil }
-func (fakeWriter) UpsertItemIDs(context.Context, []ItemIDRef) error              { return nil }
-
 type fakeGate struct {
 	shouldRun bool
 	recordErr error
@@ -74,13 +54,13 @@ func (s *stubSource) Run(ctx context.Context, deps Deps) error {
 	if err != nil {
 		return err
 	}
-	return s.Apply(ctx, deps.Writer, data)
+	return s.Apply(ctx, data)
 }
 func (s *stubSource) Fetch(context.Context, HTTPClient) (any, error) {
 	s.fetched = true
 	return struct{}{}, s.fetchErr
 }
-func (s *stubSource) Apply(context.Context, RefDataWriter, any) error {
+func (s *stubSource) Apply(context.Context, any) error {
 	s.applied = true
 	return s.applyErr
 }
@@ -110,7 +90,6 @@ func newRunner(t *testing.T, srcs []RunSource, g *fakeGate) *Runner {
 	r, err := NewRunner(RunnerOptions{
 		Sources: srcs,
 		HTTP:    fakeHTTP{},
-		Writer:  fakeWriter{},
 		Gate:    g,
 		Logger:  slog.Default(),
 	})
@@ -435,7 +414,6 @@ func TestRunnerCycleRejectedAtConstruction(t *testing.T) {
 	_, err := NewRunner(RunnerOptions{
 		Sources: []RunSource{a, b},
 		HTTP:    fakeHTTP{},
-		Writer:  fakeWriter{},
 		Gate:    &fakeGate{shouldRun: true},
 		Logger:  slog.Default(),
 	})

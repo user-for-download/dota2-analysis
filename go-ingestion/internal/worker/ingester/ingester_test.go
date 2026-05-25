@@ -8,10 +8,18 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgconn"
+
 	"github.com/user-for-download/go-dota2/internal/metrics"
 	metricsinmem "github.com/user-for-download/go-dota2/internal/metrics/inmem"
 	"github.com/user-for-download/go-dota2/internal/storage/matchstore"
 )
+
+// matchWithID is a test helper to create a Match with just the identity set.
+func matchWithID(id int64) matchstore.Match {
+	return matchstore.Match{
+		MatchIdentity: matchstore.MatchIdentity{MatchID: id},
+	}
+}
 
 type fakeRepo struct {
 	mu      sync.Mutex
@@ -58,7 +66,7 @@ func TestIngestHappyPath(t *testing.T) {
 	repo := &fakeRepo{}
 	i, sink := newIng(t, repo)
 
-	err := i.Ingest(context.Background(), matchstore.Match{MatchID: 42})
+	err := i.Ingest(context.Background(), matchWithID(42))
 	if err != nil {
 		t.Fatalf("Ingest: %v", err)
 	}
@@ -76,8 +84,8 @@ func TestIngestIdempotent(t *testing.T) {
 	i, sink := newIng(t, repo)
 
 	ctx := context.Background()
-	_ = i.Ingest(ctx, matchstore.Match{MatchID: 42})
-	_ = i.Ingest(ctx, matchstore.Match{MatchID: 42})
+	_ = i.Ingest(ctx, matchWithID(42))
+	_ = i.Ingest(ctx, matchWithID(42))
 
 	if len(repo.ingests) != 2 {
 		t.Errorf("ingests = %d, want 2", len(repo.ingests))
@@ -92,7 +100,7 @@ func TestIngestRepoFailure(t *testing.T) {
 	repo := &fakeRepo{err: errors.New("db down")}
 	i, sink := newIng(t, repo)
 
-	err := i.Ingest(context.Background(), matchstore.Match{MatchID: 42})
+	err := i.Ingest(context.Background(), matchWithID(42))
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -137,7 +145,7 @@ func TestIngestForeignKeyViolation(t *testing.T) {
 	repo := &fakeRepo{err: &pgconn.PgError{Code: "23503", Detail: "fk error"}}
 	i, sink := newIng(t, repo)
 
-	err := i.Ingest(context.Background(), matchstore.Match{MatchID: 42})
+	err := i.Ingest(context.Background(), matchWithID(42))
 	if err == nil {
 		t.Fatal("expected error")
 	}

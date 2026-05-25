@@ -80,18 +80,21 @@ jobs:
         with:
           version: latest
           working-directory: go-core
+          args: --config ../.golangci.yml
 
       - name: golangci-lint (go-analysis)
         uses: golangci/golangci-lint-action@v6
         with:
           version: latest
           working-directory: go-analysis
+          args: --config ../.golangci.yml
 
       - name: golangci-lint (go-ingestion)
         uses: golangci/golangci-lint-action@v6
         with:
           version: latest
           working-directory: go-ingestion
+          args: --config ../.golangci.yml
 
   docker:
     runs-on: ubuntu-latest

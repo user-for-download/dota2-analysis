@@ -1,9 +1,9 @@
 # ─────────────────────────────────────────────────────────────
 # go-dota2-analysis — build & run
 # ─────────────────────────────────────────────────────────────
-BAKE_FILE       := deploy/docker-bake.hcl
-COMPOSE_FILE    := deploy/docker-compose.yml
-SIBLING_COMPOSE := ../go-dota2/deploy/docker-compose.yml
+BAKE_FILE       := ../deploy/docker-bake.hcl
+COMPOSE_FILE    := ../deploy/compose/compose.analysis.yml
+SIBLING_COMPOSE := ../deploy/docker-compose.yml
 PROJECT_NAME    := go-dota2
 TAG             ?= latest
 
@@ -28,7 +28,7 @@ vendor: ## Vendor all dependencies (run after any go.mod change)
 
 # ───── Build ─────
 build: vendor ## Build all service images (cached)
-	mkdir -p deploy/models/imitation/current deploy/models/value/current
+	mkdir -p assets/models/imitation/current assets/models/value/current
 	$(BAKE) --load
 
 rebuild: vendor ## Force-rebuild all images without cache

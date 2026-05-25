@@ -95,7 +95,7 @@ func (s *Store) UnknownIDs(ctx context.Context, candidates []int64) ([]int64, er
 	rows, err := s.db.Query(ctx, `
 		SELECT c.id FROM unnest($1::bigint[]) AS c(id)
 		LEFT JOIN matches m ON m.match_id = c.id
-		WHERE m.match_id IS NULL
+		WHERE m.match_id IS NULL OR m.is_parsed = FALSE
 	`, candidates)
 	if err != nil {
 		return nil, err

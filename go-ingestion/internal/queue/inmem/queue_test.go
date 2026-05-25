@@ -86,8 +86,8 @@ func TestRetryThenDLQ(t *testing.T) {
 	if got := len(q.DLQ()); got != 1 {
 		t.Errorf("DLQ size = %d, want 1", got)
 	}
-	if q.PendingLen() != 0 {
-		t.Errorf("pending = %d, want 0", q.PendingLen())
+	if q.StreamLen() != 0 {
+		t.Errorf("pending = %d, want 0", q.StreamLen())
 	}
 }
 
@@ -108,7 +108,7 @@ func TestPopBatch(t *testing.T) {
 	if len(tasks) != 3 {
 		t.Errorf("got %d tasks, want 3", len(tasks))
 	}
-	if q.PendingLen() != 2 {
-		t.Errorf("pending = %d, want 2", q.PendingLen())
+	if q.StreamLen() != 2 {
+		t.Errorf("pending = %d, want 2", q.StreamLen())
 	}
 }

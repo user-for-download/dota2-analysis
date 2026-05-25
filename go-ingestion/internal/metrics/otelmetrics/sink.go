@@ -94,23 +94,23 @@ func NewWithProviders(fetchStatsProvider, parseStatsProvider QueueStatsProvider)
 	}
 
 	if fetchStatsProvider != nil {
-		_, err := meter.Int64ObservableGauge("dota2.fetch.queue.pending",
+		_, err := meter.Int64ObservableGauge("dota2.fetch.queue.stream_len",
 			metric.WithInt64Callback(func(ctx context.Context, o metric.Int64Observer) error {
-				_, inFlight := fetchStatsProvider.QueueDepth(ctx, "fetch")
-				o.Observe(inFlight)
+				streamLen, _ := fetchStatsProvider.QueueDepth(ctx, "fetch")
+				o.Observe(streamLen)
 				return nil
 			}),
 		)
 		if err != nil {
-			return nil, fmt.Errorf("queue pending gauge: %w", err)
+			return nil, fmt.Errorf("queue stream_len gauge: %w", err)
 		}
 	}
 
 	if parseStatsProvider != nil {
 		_, err := meter.Int64ObservableGauge("dota2.parse.queue.in_flight",
 			metric.WithInt64Callback(func(ctx context.Context, o metric.Int64Observer) error {
-				pending, _ := parseStatsProvider.QueueDepth(ctx, "parse")
-				o.Observe(pending)
+				_, inFlight := parseStatsProvider.QueueDepth(ctx, "parse")
+				o.Observe(inFlight)
 				return nil
 			}),
 		)

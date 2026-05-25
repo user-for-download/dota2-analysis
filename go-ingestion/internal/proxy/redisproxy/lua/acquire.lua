@@ -5,7 +5,9 @@ local ttl = tonumber(ARGV[1])
 local token = ARGV[2]
 local topN = tonumber(ARGV[3]) or 20
 local now = tonumber(redis.call('TIME')[1])
-math.randomseed(now)
+-- ARGV[4] is a random seed from Go ensuring deterministic replication
+-- (redis.call('TIME') is non-deterministic and would break replica sync)
+math.randomseed(tonumber(ARGV[4]) or now)
 
 -- Clean up expired leases
 redis.call('ZREMRANGEBYSCORE', leasedKey, 0, now - 1)

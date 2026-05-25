@@ -2,508 +2,15 @@ package parser
 
 import (
 	"encoding/json"
-	"fmt"
 	"math"
-	"strconv"
 
 	"github.com/user-for-download/go-dota2/internal/storage/matchstore"
 )
 
+// Match is an alias for the matchstore type.
 type Match = matchstore.Match
 
-func decodeMatch(matchID int64, blob []byte) (matchstore.Match, error) {
-	var rm rawMatch
-	if err := json.Unmarshal(blob, &rm); err != nil {
-		return matchstore.Match{}, fmt.Errorf("unmarshal: %w", err)
-	}
-	if rm.MatchID == 0 {
-		rm.MatchID = matchID
-	}
-	if rm.MatchID <= 0 {
-		return matchstore.Match{}, fmt.Errorf("invalid match_id: %d", rm.MatchID)
-	}
-	if rm.StartTime == 0 {
-		return matchstore.Match{}, fmt.Errorf("match %d: start_time missing", rm.MatchID)
-	}
-	if rm.Duration < 0 {
-		return matchstore.Match{}, fmt.Errorf("match %d: negative duration", rm.MatchID)
-	}
-
-	m := decodeMatchRoot(&rm)
-	m.Players, m.Details = decodePlayers(rm.Players)
-	m.PicksBans = decodePicksBans(rm.PicksBans)
-	m.DraftTimings = decodeDraftTimings(rm.DraftTimings)
-	m.Objectives = decodeObjectives(rm.Objectives)
-	m.Chat = decodeChat(rm.Chat)
-	m.Teamfights = decodeTeamfights(rm.Teamfights)
-	m.Advantages = decodeAdvantages(rm.RadiantGoldAdv, rm.RadiantXPAdv)
-	m.Cosmetics = rm.Cosmetics
-	m.Timeseries = expandTimeseries(rm.Players)
-	m.Raw = blob
-	return m, nil
-}
-
-func decodeMatchRoot(rm *rawMatch) matchstore.Match {
-	return matchstore.Match{
-		MatchID:               rm.MatchID,
-		MatchSeqNum:           deref64(rm.MatchSeqNum),
-		StartTime:             rm.StartTime,
-		Duration:              rm.Duration,
-		RadiantWin:            derefBool(rm.RadiantWin),
-		TowerStatusRadiant:    deref16(rm.TowerStatusRadiant),
-		TowerStatusDire:       deref16(rm.TowerStatusDire),
-		BarracksStatusRadiant: deref16(rm.BarracksStatusRadiant),
-		BarracksStatusDire:    deref16(rm.BarracksStatusDire),
-		RadiantScore:          deref16(rm.RadiantScore),
-		DireScore:             deref16(rm.DireScore),
-		FirstBloodTime:        deref32(rm.FirstBloodTime),
-		LobbyType:             deref16(rm.LobbyType),
-		GameMode:              deref16(rm.GameMode),
-		Cluster:               deref16(rm.Cluster),
-		Region:                deref16(rm.Region),
-		Skill:                 deref16(rm.Skill),
-		Engine:                deref16(rm.Engine),
-		HumanPlayers:          deref16(rm.HumanPlayers),
-		Version:               deref16(rm.Version),
-		PatchID:               deref32(rm.Patch),
-		PositiveVotes:         deref32(rm.PositiveVotes),
-		NegativeVotes:         deref32(rm.NegativeVotes),
-		LeagueID:              deref32(rm.LeagueID),
-		SeriesID:              deref32(rm.SeriesID),
-		SeriesType:            deref16(rm.SeriesType),
-		RadiantTeamID:         deref64(rm.RadiantTeamID),
-		DireTeamID:            deref64(rm.DireTeamID),
-		RadiantCaptain:        deref64(rm.RadiantCaptain),
-		DireCaptain:           deref64(rm.DireCaptain),
-		ReplaySalt:            deref64(rm.ReplaySalt),
-		ReplayURL:             derefStr(rm.ReplayURL),
-		Pauses:                rm.Pauses,
-		IsParsed:              isMatchParsed(*rm),
-	}
-}
-
-func decodePlayers(raw []rawPlayer) ([]matchstore.PlayerRow, []matchstore.PlayerDetailRow) {
-	players := make([]matchstore.PlayerRow, 0, len(raw))
-	details := make([]matchstore.PlayerDetailRow, 0, len(raw))
-	for _, rp := range raw {
-		players = append(players, convertPlayer(rp))
-		details = append(details, convertPlayerDetail(rp))
-	}
-	return players, details
-}
-
-func decodePicksBans(raw []rawPickBan) []matchstore.PickBanRow {
-	if len(raw) == 0 {
-		return nil
-	}
-	rows := make([]matchstore.PickBanRow, 0, len(raw))
-	for _, pb := range raw {
-		rows = append(rows, matchstore.PickBanRow{
-			Order:  pb.Order,
-			IsPick: pb.IsPick,
-			HeroID: pb.HeroID,
-			Team:   pb.Team,
-		})
-	}
-	return rows
-}
-
-func decodeDraftTimings(raw []rawDraftTiming) []matchstore.DraftTimingRow {
-	if len(raw) == 0 {
-		return nil
-	}
-	rows := make([]matchstore.DraftTimingRow, 0, len(raw))
-	for _, d := range raw {
-		rows = append(rows, matchstore.DraftTimingRow{
-			Order:          d.Order,
-			Pick:           d.Pick,
-			ActiveTeam:     deref16(d.ActiveTeam),
-			HeroID:         deref16(d.HeroID),
-			PlayerSlot:     deref16(d.PlayerSlot),
-			ExtraTime:      deref32(d.ExtraTime),
-			TotalTimeTaken: deref32(d.TotalTimeTaken),
-		})
-	}
-	return rows
-}
-
-func decodeObjectives(raw []rawObjective) []matchstore.ObjectiveRow {
-	if len(raw) == 0 {
-		return nil
-	}
-	rows := make([]matchstore.ObjectiveRow, 0, len(raw))
-	for _, o := range raw {
-		rawJSON, _ := json.Marshal(o)
-		keyStr := ""
-		if k := objectiveKeyAsString(o.Key); k != nil {
-			keyStr = *k
-		}
-		rows = append(rows, matchstore.ObjectiveRow{
-			Time:       o.Time,
-			Type:       o.Type,
-			Slot:       deref16(o.Slot),
-			PlayerSlot: deref16(o.PlayerSlot),
-			Team:       deref16(o.Team),
-			Key:        keyStr,
-			Value:      deref32(o.Value),
-			Unit:       derefStr(o.Unit),
-			Raw:        rawJSON,
-		})
-	}
-	return rows
-}
-
-func decodeChat(raw []rawChat) []matchstore.ChatRow {
-	if len(raw) == 0 {
-		return nil
-	}
-	rows := make([]matchstore.ChatRow, 0, len(raw))
-	for _, c := range raw {
-		rows = append(rows, matchstore.ChatRow{
-			Time:       c.Time,
-			Type:       derefStr(c.Type),
-			PlayerSlot: deref16(c.PlayerSlot),
-			Unit:       derefStr(c.Unit),
-			Key:        derefStr(c.Key),
-		})
-	}
-	return rows
-}
-
-func decodeTeamfights(raw []rawTeamfight) []matchstore.TeamfightRow {
-	if len(raw) == 0 {
-		return nil
-	}
-	rows := make([]matchstore.TeamfightRow, 0, len(raw))
-	for _, t := range raw {
-		rows = append(rows, matchstore.TeamfightRow{
-			EndTime:   t.End,
-			LastDeath: deref32(t.LastDeath),
-			Deaths:    deref16(t.Deaths),
-			Players:   t.Players,
-		})
-	}
-	return rows
-}
-
-func decodeAdvantages(gold, xp []int32) *matchstore.AdvantagesRow {
-	if len(gold) == 0 && len(xp) == 0 {
-		return nil
-	}
-	return &matchstore.AdvantagesRow{
-		RadiantGoldAdv: gold,
-		RadiantXPAdv:   xp,
-	}
-}
-
-func validate(m matchstore.Match) error {
-	if m.MatchID <= 0 {
-		return fmt.Errorf("invalid match_id: %d", m.MatchID)
-	}
-	if m.StartTime <= 0 {
-		return fmt.Errorf("match %d: start_time required", m.MatchID)
-	}
-	for _, p := range m.Players {
-		if !validPlayerSlot(p.PlayerSlot) {
-			return fmt.Errorf("match %d: invalid player_slot %d", m.MatchID, p.PlayerSlot)
-		}
-		if p.HeroID < 0 {
-			return fmt.Errorf("match %d slot %d: invalid hero_id %d", m.MatchID, p.PlayerSlot, p.HeroID)
-		}
-	}
-	for _, pb := range m.PicksBans {
-		if pb.Team != 0 && pb.Team != 1 {
-			return fmt.Errorf("match %d: picks_bans team must be 0|1 (got %d)", m.MatchID, pb.Team)
-		}
-	}
-	return nil
-}
-
-func validPlayerSlot(s int16) bool {
-	return (s >= 0 && s <= 4) || (s >= 128 && s <= 132)
-}
-
-func isMatchParsed(rm rawMatch) bool {
-	if len(rm.Players) == 0 {
-		return false
-	}
-	hasParsedPlayer := false
-	for _, p := range rm.Players {
-		if p.PurchaseLog != nil || len(p.GoldT) > 0 || len(p.XPT) > 0 {
-			hasParsedPlayer = true
-			break
-		}
-	}
-	return hasParsedPlayer
-}
-
-func convertPlayer(rp rawPlayer) matchstore.PlayerRow {
-	win := false
-	if rp.Win != nil {
-		win = *rp.Win == 1
-	}
-	isRadiant := false
-	if rp.IsRadiant != nil {
-		isRadiant = *rp.IsRadiant
-	}
-	var firstblood bool
-	if b := decToBool(rp.FirstbloodClaimed); b != nil {
-		firstblood = *b
-	}
-
-	return matchstore.PlayerRow{
-		PlayerSlot:              rp.PlayerSlot,
-		AccountID:               deref64(rp.AccountID),
-		HeroID:                  rp.HeroID,
-		HeroVariant:             deref16(rp.HeroVariant),
-		IsRadiant:               isRadiant,
-		Win:                     win,
-		PatchID:                 deref32(rp.PatchID),
-		LobbyType:               deref16(rp.LobbyType),
-		GameMode:                deref16(rp.GameMode),
-		RankTier:                deref16(rp.RankTier),
-		Kills:                   rp.Kills,
-		Deaths:                  rp.Deaths,
-		Assists:                 rp.Assists,
-		Level:                   deref16(rp.Level),
-		NetWorth:                deref32(rp.NetWorth),
-		Gold:                    deref32(rp.Gold),
-		GoldSpent:               deref32(rp.GoldSpent),
-		GoldPerMin:              deref16(rp.GoldPerMin),
-		XPPerMin:                deref16(rp.XPPerMin),
-		LastHits:                deref16(rp.LastHits),
-		Denies:                  deref16(rp.Denies),
-		HeroDamage:              deref32(rp.HeroDamage),
-		TowerDamage:             deref32(rp.TowerDamage),
-		HeroHealing:             deref32(rp.HeroHealing),
-		Item0:                   deref32(rp.Item0),
-		Item1:                   deref32(rp.Item1),
-		Item2:                   deref32(rp.Item2),
-		Item3:                   deref32(rp.Item3),
-		Item4:                   deref32(rp.Item4),
-		Item5:                   deref32(rp.Item5),
-		ItemNeutral:             deref32(rp.ItemNeutral),
-		Backpack0:               deref32(rp.Backpack0),
-		Backpack1:               deref32(rp.Backpack1),
-		Backpack2:               deref32(rp.Backpack2),
-		Backpack3:               deref32(rp.Backpack3),
-		Lane:                    deref16(rp.Lane),
-		LaneRole:                deref16(rp.LaneRole),
-		IsRoaming:               derefBool(rp.IsRoaming),
-		PartyID:                 deref32(rp.PartyID),
-		PartySize:               deref16(rp.PartySize),
-		Stuns:                   derefF32(rp.Stuns),
-		ObsPlaced:               deref16(rp.ObsPlaced),
-		SenPlaced:               deref16(rp.SenPlaced),
-		CreepsStacked:           deref16(rp.CreepsStacked),
-		CampsStacked:            deref16(rp.CampsStacked),
-		RunePickups:             deref16(rp.RunePickups),
-		FirstbloodClaimed:       firstblood,
-		TeamfightParticipation:  derefF32(rp.TeamfightParticipation),
-		TowersKilled:            deref16(rp.TowersKilled),
-		RoshansKilled:           deref16(rp.RoshansKilled),
-		ObserversPlaced:         deref16(rp.ObserversPlaced),
-		LeaverStatus:            deref16(rp.LeaverStatus),
-		GoldT:                   safeSlice(rp.GoldT),
-		XPT:                     safeSlice(rp.XPT),
-		LHT:                     safeSlice(rp.LHT),
-		DNT:                     safeSlice(rp.DNT),
-		Times:                   safeSlice(rp.Times),
-		ThrowGold:               deref32(rp.ThrowGold),
-		ComebackGold:            deref32(rp.ComebackGold),
-		LossGold:                deref32(rp.LossGold),
-		WinGold:                 deref32(rp.WinGold),
-	}
-}
-
-func convertPlayerDetail(rp rawPlayer) matchstore.PlayerDetailRow {
-	return matchstore.PlayerDetailRow{
-		PlayerSlot:              rp.PlayerSlot,
-		Damage:                  rp.Damage,
-		DamageTaken:             rp.DamageTaken,
-		DamageInflictor:         rp.DamageInflictor,
-		DamageInflictorReceived: rp.DamageInflictorReceived,
-		DamageTargets:           rp.DamageTargets,
-		HeroHits:                rp.HeroHits,
-		MaxHeroHit:              rp.MaxHeroHit,
-		AbilityUses:             rp.AbilityUses,
-		AbilityTargets:          rp.AbilityTargets,
-		AbilityUpgradesArr:      rp.AbilityUpgradesArr,
-		ItemUses:                rp.ItemUses,
-		GoldReasons:             rp.GoldReasons,
-		XPReasons:               rp.XPReasons,
-		Killed:                  rp.Killed,
-		KilledBy:                rp.KilledBy,
-		KillStreaks:             rp.KillStreaks,
-		MultiKills:              rp.MultiKills,
-		LifeState:               rp.LifeState,
-		LanePos:                 rp.LanePos,
-		Obs:                     rp.Obs,
-		Sen:                     rp.Sen,
-		Actions:                 rp.Actions,
-		Pings:                   rp.Pings,
-		Runes:                   rp.Runes,
-		Purchase:                rp.Purchase,
-		ObsLog:                  rp.ObsLog,
-		SenLog:                  rp.SenLog,
-		ObsLeftLog:              rp.ObsLeftLog,
-		SenLeftLog:              rp.SenLeftLog,
-		PurchaseLog:             rp.PurchaseLog,
-		KillsLog:                rp.KillsLog,
-		BuybackLog:              rp.BuybackLog,
-		RunesLog:                rp.RunesLog,
-		ConnectionLog:           rp.ConnectionLog,
-		PermanentBuffs:          rp.PermanentBuffs,
-		NeutralTokensLog:        rp.NeutralTokensLog,
-		NeutralItemHistory:      rp.NeutralItemHistory,
-		AdditionalUnits:         rp.AdditionalUnits,
-		Cosmetics:               rp.Cosmetics,
-		Benchmarks:              rp.Benchmarks,
-		AllWordCounts:           rp.AllWordCounts,
-		MyWordCounts:            rp.MyWordCounts,
-	}
-}
-
-func objectiveKeyAsString(raw json.RawMessage) *string {
-	if len(raw) == 0 || string(raw) == "null" {
-		return nil
-	}
-	var s string
-	if err := json.Unmarshal(raw, &s); err == nil {
-		return &s
-	}
-	var n int
-	if err := json.Unmarshal(raw, &n); err == nil {
-		s = strconv.Itoa(n)
-		return &s
-	}
-	return nil
-}
-
-func expandTimeseries(players []rawPlayer) []matchstore.TimeseriesRow {
-	out := make([]matchstore.TimeseriesRow, 0, len(players)*60)
-	for _, p := range players {
-		// Use the "times" array as the authoritative time axis when available.
-		// Fall back to the longest per-minute array if times is missing.
-		maxMin := len(p.Times)
-		if maxMin == 0 {
-			if len(p.GoldT) > maxMin {
-				maxMin = len(p.GoldT)
-			}
-			if len(p.XPT) > maxMin {
-				maxMin = len(p.XPT)
-			}
-			if len(p.LHT) > maxMin {
-				maxMin = len(p.LHT)
-			}
-			if len(p.DNT) > maxMin {
-				maxMin = len(p.DNT)
-			}
-		}
-		if maxMin == 0 {
-			continue
-		}
-		for min := 0; min < maxMin; min++ {
-			gold := safeIdx(p.GoldT, min)
-			xp := safeIdx(p.XPT, min)
-			lh := safeIdxSmall(p.LHT, min)
-			dn := safeIdxSmall(p.DNT, min)
-			if gold == nil && xp == nil && lh == nil && dn == nil {
-				continue
-			}
-			out = append(out, matchstore.TimeseriesRow{
-				PlayerSlot: p.PlayerSlot,
-				Minute:     int16(min),
-				HeroID:     p.HeroID,
-				AccountID:  deref64(p.AccountID),
-				PatchID:    deref32(p.PatchID),
-				Gold:       deref32(gold),
-				XP:         deref32(xp),
-				LH:         deref16(lh),
-				DN:         deref16(dn),
-			})
-		}
-	}
-	return out
-}
-
-func deref64(p *int64) int64 {
-	if p == nil {
-		return 0
-	}
-	return *p
-}
-
-func deref32(p *int32) int32 {
-	if p == nil {
-		return 0
-	}
-	return *p
-}
-
-func deref16(p *int16) int16 {
-	if p == nil {
-		return 0
-	}
-	return *p
-}
-
-func derefBool(p *bool) bool {
-	if p == nil {
-		return false
-	}
-	return *p
-}
-
-func derefF32(p *float32) float32 {
-	if p == nil {
-		return 0
-	}
-	return *p
-}
-
-func derefStr(p *string) string {
-	if p == nil {
-		return ""
-	}
-	return *p
-}
-
-func decToBool(v *int16) *bool {
-	if v == nil {
-		return nil
-	}
-	b := *v != 0
-	return &b
-}
-
-func safeSlice(s []int32) []int32 {
-	if len(s) == 0 {
-		return nil
-	}
-	out := make([]int32, len(s))
-	copy(out, s)
-	return out
-}
-
-func safeIdx(s []int32, i int) *int32 {
-	if i < len(s) {
-		return &s[i]
-	}
-	return nil
-}
-
-func safeIdxSmall(s []int32, i int) *int16 {
-	if i < len(s) {
-		val := s[i]
-		if val > math.MaxInt16 {
-			val = math.MaxInt16
-		}
-		v := int16(val)
-		return &v
-	}
-	return nil
-}
+// ─── Raw JSON types ────────────────────────────────────────
 
 type rawMatch struct {
 	MatchID               int64           `json:"match_id"`
@@ -699,4 +206,84 @@ type rawTeamfight struct {
 	LastDeath *int32          `json:"last_death"`
 	Deaths    *int16          `json:"deaths"`
 	Players   json.RawMessage `json:"players"`
+}
+
+// ─── Deref Helpers ─────────────────────────────────────────
+
+func deref64(p *int64) int64 {
+	if p == nil {
+		return 0
+	}
+	return *p
+}
+
+func deref32(p *int32) int32 {
+	if p == nil {
+		return 0
+	}
+	return *p
+}
+
+func deref16(p *int16) int16 {
+	if p == nil {
+		return 0
+	}
+	return *p
+}
+
+func derefBool(p *bool) bool {
+	if p == nil {
+		return false
+	}
+	return *p
+}
+
+func derefF32(p *float32) float32 {
+	if p == nil {
+		return 0
+	}
+	return *p
+}
+
+func derefStr(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
+}
+
+func decToBool(v *int16) *bool {
+	if v == nil {
+		return nil
+	}
+	b := *v != 0
+	return &b
+}
+
+func safeSlice(s []int32) []int32 {
+	if len(s) == 0 {
+		return nil
+	}
+	out := make([]int32, len(s))
+	copy(out, s)
+	return out
+}
+
+func safeIdx(s []int32, i int) *int32 {
+	if i < len(s) {
+		return &s[i]
+	}
+	return nil
+}
+
+func safeIdxSmall(s []int32, i int) *int16 {
+	if i < len(s) {
+		val := s[i]
+		if val > math.MaxInt16 {
+			val = math.MaxInt16
+		}
+		v := int16(val)
+		return &v
+	}
+	return nil
 }

@@ -1,8 +1,8 @@
 # ─────────────────────────────────────────────────────────────
 # go-dota2 — build & run
 # ─────────────────────────────────────────────────────────────
-BAKE_FILE    := deploy/docker-bake.hcl
-COMPOSE_FILE := deploy/docker-compose.yml
+BAKE_FILE    := ../deploy/docker-bake.hcl
+COMPOSE_FILE := ../deploy/docker-compose.yml
 PROJECT_NAME := go-dota2
 TAG          ?= latest
 

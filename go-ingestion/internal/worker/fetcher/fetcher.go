@@ -18,31 +18,39 @@ import (
 	"github.com/user-for-download/go-dota2/internal/worker"
 )
 
+// latencyAdapter adapts metrics.Sink to redisstreams.LatencySink.
+type latencyAdapter struct{ m metrics.Sink }
+
+func (a *latencyAdapter) RecordLatency(ctx context.Context, stage string, ms float64) {
+	a.m.RecordLatency(ctx, metrics.Stage(stage), ms)
+}
+
 type Task struct {
 	MatchID int64 `json:"match_id"`
 }
 
 type Config struct {
 	UpstreamURL string
-	PayloadTTL time.Duration
+	PayloadTTL  time.Duration
 	HTTPTimeout time.Duration
-	Batch      int
-	Block      time.Duration
-	Logger     *slog.Logger
+	Batch       int // kept for backward compat; Subscribe uses queue defaults
+	Block       time.Duration
+	Logger      *slog.Logger
 }
 
 type Fetcher struct {
-	in    queue.Queue
-	out   queue.Queue
+	in    queue.Subscriber
+	out   queue.Publisher
 	doer  worker.HTTPDoer
 	store payload.Store
 	m     metrics.Sink
 	cfg   Config
-	log  *slog.Logger
+	log   *slog.Logger
 }
 
 func New(
-	in, out queue.Queue,
+	in queue.Subscriber,
+	out queue.Publisher,
 	doer worker.HTTPDoer,
 	store payload.Store,
 	m metrics.Sink,
@@ -88,29 +96,21 @@ func New(
 }
 
 func (f *Fetcher) Run(ctx context.Context) error {
-	return worker.Run(ctx, f.in, worker.Config{
-		Batch:      f.cfg.Batch,
-		Block:      f.cfg.Block,
-		Logger:     f.log,
-		RecoverStale: true,
-		Metrics:    &latencySink{m: f.m},
-	}, metrics.StageFetch, f)
+	// When using Subscribe the queue manages Pop/Ack/Retry/backpressure/stale
+	// recovery internally.  Batch/Block config should be set on the queue's
+	// redisstreams.Config.SubscribeBatch/SubscribeBlock at construction time.
+	return f.in.Subscribe(ctx, f.handleMessage)
 }
 
-var _ worker.Handler = (*Fetcher)(nil)
-
-type latencySink struct{ m metrics.Sink }
-
-func (s *latencySink) RecordLatency(ctx context.Context, stage metrics.Stage, ms float64) {
-	s.m.RecordLatency(ctx, stage, ms)
-}
-
-func (f *Fetcher) Process(ctx context.Context, t queue.Task) (worker.Result, error) {
+// handleMessage implements queue.Handler.  It processes a single fetch task,
+// retrieves the match payload from the upstream API, stores it, and enqueues
+// a parse task.
+func (f *Fetcher) handleMessage(ctx context.Context, msg queue.Message) error {
 	var body Task
-	if err := json.Unmarshal(t.Payload, &body); err != nil {
+	if err := json.Unmarshal(msg.Payload, &body); err != nil {
 		f.m.FetchFailure(ctx, metrics.KindDecode)
-		f.log.Warn("malformed fetch task", "id", t.ID, "err", err)
-		return worker.ResultDrop, fmt.Errorf("decode: %w", err)
+		f.log.Warn("malformed fetch task", "id", msg.ID, "err", err)
+		return queue.ErrDrop // permanent decode error — drop, don't retry
 	}
 
 	blob, err := f.fetchOne(ctx, body.MatchID)
@@ -119,10 +119,10 @@ func (f *Fetcher) Process(ctx context.Context, t queue.Task) (worker.Result, err
 		var perr *httpdo.PermanentHTTPError
 		if errors.As(err, &perr) {
 			f.log.Info("fetch failed permanently; dropping", "match_id", body.MatchID, "err", err)
-			return worker.ResultDrop, err
+			return queue.ErrDrop
 		}
 		f.log.Info("fetch failed; retrying", "match_id", body.MatchID, "err", err)
-		return worker.ResultRetry, err
+		return err
 	}
 
 	f.log.Info("fetch ok", "match_id", body.MatchID, "bytes", len(blob))
@@ -130,22 +130,26 @@ func (f *Fetcher) Process(ctx context.Context, t queue.Task) (worker.Result, err
 	key := strconv.FormatInt(body.MatchID, 10)
 	if err := f.store.Put(ctx, key, blob, f.cfg.PayloadTTL); err != nil {
 		f.m.FetchFailure(ctx, metrics.KindPayload)
-		return worker.ResultRetry, fmt.Errorf("payload: %w", err)
+		return fmt.Errorf("payload: %w", err)
 	}
 
-	next, _ := json.Marshal(Task{MatchID: body.MatchID})
-	if err := f.out.Push(ctx, next); err != nil {
+	next, err := json.Marshal(Task{MatchID: body.MatchID})
+	if err != nil {
+		f.m.FetchFailure(ctx, metrics.KindDecode)
+		return fmt.Errorf("marshal parse task: %w", err)
+	}
+	if err := f.out.Publish(ctx, next); err != nil {
 		f.m.FetchFailure(ctx, metrics.KindUnknown)
 		_ = f.store.ExtendTTL(ctx, key, 2*time.Hour)
-		return worker.ResultRetry, fmt.Errorf("out-queue: %w", err)
+		return fmt.Errorf("out-queue: %w", err)
 	}
 
 	f.m.FetchSuccess(ctx)
-	return worker.ResultSuccess, nil
+	return nil
 }
 
 func (f *Fetcher) fetchOne(ctx context.Context, matchID int64) ([]byte, error) {
-	targetURL := fmt.Sprintf(f.cfg.UpstreamURL, matchID)
+	targetURL := f.cfg.UpstreamURL + "/" + strconv.FormatInt(matchID, 10)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, targetURL, nil)
 	if err != nil {

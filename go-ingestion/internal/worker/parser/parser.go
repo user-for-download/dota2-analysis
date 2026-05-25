@@ -24,14 +24,13 @@ type Ingester interface {
 }
 
 type Config struct {
-	Batch         int
-	Block         time.Duration
-	Logger        *slog.Logger
-	QueueProvider worker.QueueDepthProvider
+	Batch  int           // kept for backward compat; Subscribe uses queue defaults
+	Block  time.Duration
+	Logger *slog.Logger
 }
 
 type Parser struct {
-	in       queue.Queue
+	in       queue.Subscriber
 	store    payload.Store
 	ingester Ingester
 	m        metrics.Sink
@@ -40,7 +39,7 @@ type Parser struct {
 }
 
 func New(
-	in queue.Queue,
+	in queue.Subscriber,
 	store payload.Store,
 	ingester Ingester,
 	m metrics.Sink,
@@ -75,30 +74,20 @@ func New(
 }
 
 func (p *Parser) Run(ctx context.Context) error {
-	return worker.Run(ctx, p.in, worker.Config{
-		Batch:         p.cfg.Batch,
-		Block:         p.cfg.Block,
-		Logger:        p.log,
-		RecoverStale:  true,
-		QueueProvider: p.cfg.QueueProvider,
-		Metrics:       &latencySink{m: p.m},
-	}, metrics.StageParse, p)
+	// When using Subscribe the queue manages Pop/Ack/Retry/backpressure/stale
+	// recovery internally.  Batch/Block config should be set on the queue's
+	// redisstreams.Config.SubscribeBatch/SubscribeBlock at construction time.
+	return p.in.Subscribe(ctx, p.handleMessage)
 }
 
-type latencySink struct{ m metrics.Sink }
-
-func (s *latencySink) RecordLatency(ctx context.Context, stage metrics.Stage, ms float64) {
-	s.m.RecordLatency(ctx, stage, ms)
-}
-
-var _ worker.Handler = (*Parser)(nil)
-
-func (p *Parser) Process(ctx context.Context, t queue.Task) (worker.Result, error) {
+// handleMessage implements queue.Handler.  It processes a single parse task,
+// retrieves the stored match payload, decodes/validates it, and ingests it.
+func (p *Parser) handleMessage(ctx context.Context, msg queue.Message) error {
 	var body Task
-	if err := json.Unmarshal(t.Payload, &body); err != nil {
+	if err := json.Unmarshal(msg.Payload, &body); err != nil {
 		p.m.ParseFailure(ctx, metrics.KindDecode)
-		p.log.Warn("malformed parse task", "id", t.ID, "err", err)
-		return worker.ResultDrop, fmt.Errorf("decode task: %w", err)
+		p.log.Warn("malformed parse task", "id", msg.ID, "err", err)
+		return queue.ErrDrop
 	}
 
 	key := strconv.FormatInt(body.MatchID, 10)
@@ -106,36 +95,40 @@ func (p *Parser) Process(ctx context.Context, t queue.Task) (worker.Result, erro
 	if errors.Is(err, payload.ErrNotFound) {
 		p.m.ParseFailure(ctx, metrics.KindPayload)
 		p.log.Warn("payload expired; dropping task", "match_id", body.MatchID, "key", key)
-		return worker.ResultDrop, err
+		return queue.ErrDrop
 	}
 	if err != nil {
 		p.m.ParseFailure(ctx, metrics.KindPayload)
-		return worker.ResultRetry, fmt.Errorf("payload get: %w", err)
+		return fmt.Errorf("payload get: %w", err)
 	}
 
 	m, err := decodeMatch(body.MatchID, blob)
 	if err != nil {
 		p.m.ParseFailure(ctx, metrics.KindDecode)
-		return worker.ResultDrop, fmt.Errorf("decode: %w", err)
+		return queue.ErrDrop
 	}
 	if err := validate(m); err != nil {
 		p.m.ParseFailure(ctx, metrics.KindValidate)
-		return worker.ResultDrop, fmt.Errorf("validate: %w", err)
+		return queue.ErrDrop
 	}
 
 	if err := p.ingester.Ingest(ctx, m); err != nil {
 		if errors.Is(err, worker.ErrAlreadySeen) {
 			p.m.ParseDuplicate(ctx)
 			p.log.Info("match already in database, skipping", "match_id", m.MatchID)
-			_ = p.store.Delete(ctx, key)
-			return worker.ResultSuccess, nil
+			if delErr := p.store.Delete(ctx, key); delErr != nil {
+				p.log.Warn("failed to delete payload on duplicate", "match_id", m.MatchID, "err", delErr)
+			}
+			return nil
 		}
 		p.m.ParseFailure(ctx, metrics.KindIngest)
 		_ = p.store.ExtendTTL(ctx, key, 2*time.Hour)
-		return worker.ResultRetry, fmt.Errorf("ingest: %w", err)
+		return fmt.Errorf("ingest: %w", err)
 	}
 
 	p.m.ParseSuccess(ctx)
-	_ = p.store.Delete(ctx, key)
-	return worker.ResultSuccess, nil
+	if delErr := p.store.Delete(ctx, key); delErr != nil {
+		p.log.Warn("failed to delete payload after success", "match_id", m.MatchID, "err", delErr)
+	}
+	return nil
 }

@@ -55,6 +55,17 @@ func (r *Runner) runOnce(ctx context.Context) error {
 	}
 
 	now := time.Now().UTC()
+
+	// 🟢 Signal readiness immediately after MVs are populated.
+	// This unblocks the api and backtester so they don't wait for the snapshot.
+	if _, err := r.db.Exec(ctx, `
+		INSERT INTO analytics.launch_keys (key, created_at, updated_at) 
+		VALUES ('featurizer_ready', $1, $1)
+		ON CONFLICT (key) DO UPDATE SET updated_at = EXCLUDED.updated_at
+	`, now); err != nil {
+		r.log.Warn("failed to set launch key", "err", err)
+	}
+
 	if err := postgres.SnapshotPlayerHero(ctx, r.db, now); err != nil {
 		return err
 	}

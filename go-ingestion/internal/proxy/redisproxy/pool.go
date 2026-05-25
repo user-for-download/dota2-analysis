@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	mathrand "math/rand"
 	"os"
 	"strconv"
 	"time"
@@ -114,7 +115,7 @@ func (p *Pool) Acquire(ctx context.Context, hold time.Duration) (*proxy.Lease, e
 	res, err := p.scriptAcquire.Run(
 		ctx, p.rdb,
 		[]string{p.keys.set(), p.keys.leased(), leaseKey},
-		ttlSec, token, 20,
+		ttlSec, token, 20, mathrand.Int63(),
 	).Result()
 	if err != nil {
 		if errors.Is(err, goredis.Nil) {

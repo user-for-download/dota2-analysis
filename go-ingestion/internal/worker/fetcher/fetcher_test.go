@@ -19,6 +19,11 @@ import (
 	queueinmem "github.com/user-for-download/go-dota2/internal/queue/inmem"
 )
 
+// msgFromTask converts a queue.Task to a queue.Message for testing handlers.
+func msgFromTask(t queue.Task) queue.Message {
+	return queue.Message{ID: t.ID, Payload: t.Payload}
+}
+
 type fakeDoer struct {
 	mu    sync.Mutex
 	calls int
@@ -51,7 +56,7 @@ func newFetcher(t *testing.T) (*Fetcher, *queueinmem.Queue, *queueinmem.Queue, *
 	sink := metricsinmem.New()
 
 	f, err := New(in, out, doer, store, sink, Config{
-		UpstreamURL: "https://api.example.com/match/%d",
+		UpstreamURL: "https://api.example.com/match",
 		Batch:       5,
 		Block:      50 * time.Millisecond,
 		HTTPTimeout: time.Second,
@@ -80,14 +85,14 @@ func TestFetcherHappyPath(t *testing.T) {
 
 	tasks, _ := in.Pop(ctx, 10, 100*time.Millisecond)
 	for _, tk := range tasks {
-		_, _ = f.Process(ctx, tk)
+		_ = f.handleMessage(ctx, msgFromTask(tk))
 	}
 
 	if store.Len() != 1 {
 		t.Errorf("payload not stored: len=%d", store.Len())
 	}
-	if out.PendingLen() != 1 {
-		t.Errorf("out queue len = %d, want 1", out.PendingLen())
+	if out.StreamLen() != 1 {
+		t.Errorf("out queue len = %d, want 1", out.StreamLen())
 	}
 	snap, _ := sink.Snapshot(ctx)
 	if snap.FetchSuccess != 1 {
@@ -102,26 +107,26 @@ func TestFetcherConfigValidation(t *testing.T) {
 	store := payloadinmem.New()
 	sink := metricsinmem.New()
 
-	_, err := New(nil, out, doer, store, sink, Config{UpstreamURL: "http://example.com/%d"})
+	_, err := New(nil, out, doer, store, sink, Config{UpstreamURL: "http://example.com/match"})
 	if err == nil { t.Error("expected err on nil queueIn") }
 
-	_, err = New(in, nil, doer, store, sink, Config{UpstreamURL: "http://example.com/%d"})
+	_, err = New(in, nil, doer, store, sink, Config{UpstreamURL: "http://example.com/match"})
 	if err == nil { t.Error("expected err on nil queueOut") }
 
-	_, err = New(in, out, nil, store, sink, Config{UpstreamURL: "http://example.com/%d"})
+	_, err = New(in, out, nil, store, sink, Config{UpstreamURL: "http://example.com/match"})
 	if err == nil { t.Error("expected err on nil doer") }
 
-	_, err = New(in, out, doer, nil, sink, Config{UpstreamURL: "http://example.com/%d"})
+	_, err = New(in, out, doer, nil, sink, Config{UpstreamURL: "http://example.com/match"})
 	if err == nil { t.Error("expected err on nil store") }
 
-	_, err = New(in, out, doer, store, nil, Config{UpstreamURL: "http://example.com/%d"})
+	_, err = New(in, out, doer, store, nil, Config{UpstreamURL: "http://example.com/match"})
 	if err == nil { t.Error("expected err on nil sink") }
 
 	_, err = New(in, out, doer, store, sink, Config{UpstreamURL: ""})
 	if err == nil { t.Error("expected err on empty URL") }
 
 	// Test default config
-	_, err = New(in, out, doer, store, sink, Config{UpstreamURL: "http://example.com/%d"})
+	_, err = New(in, out, doer, store, sink, Config{UpstreamURL: "http://example.com/match"})
 	if err != nil { t.Errorf("expected no err on valid deps, got %v", err) }
 }
 
@@ -144,7 +149,7 @@ func TestFetcher403Classified(t *testing.T) {
 	pushFetchTask(t, in, 42)
 	tasks, _ := in.Pop(ctx, 10, 100*time.Millisecond)
 	for _, tk := range tasks {
-		_, _ = f.Process(ctx, tk)
+		_ = f.handleMessage(ctx, msgFromTask(tk))
 	}
 
 	snap, _ := sink.Snapshot(ctx)
@@ -161,7 +166,7 @@ func TestFetcher404Classified(t *testing.T) {
 	pushFetchTask(t, in, 42)
 	tasks, _ := in.Pop(ctx, 10, 100*time.Millisecond)
 	for _, tk := range tasks {
-		_, _ = f.Process(ctx, tk)
+		_ = f.handleMessage(ctx, msgFromTask(tk))
 	}
 
 	snap, _ := sink.Snapshot(ctx)
@@ -178,7 +183,7 @@ func TestFetcher429Classified(t *testing.T) {
 	pushFetchTask(t, in, 42)
 	tasks, _ := in.Pop(ctx, 10, 100*time.Millisecond)
 	for _, tk := range tasks {
-		_, _ = f.Process(ctx, tk)
+		_ = f.handleMessage(ctx, msgFromTask(tk))
 	}
 
 	snap, _ := sink.Snapshot(ctx)
@@ -196,7 +201,7 @@ func TestFetcherMalformedTaskRouted(t *testing.T) {
 	}
 	tasks, _ := in.Pop(ctx, 10, 100*time.Millisecond)
 	for _, tk := range tasks {
-		_, _ = f.Process(ctx, tk)
+		_ = f.handleMessage(ctx, msgFromTask(tk))
 	}
 
 	snap, _ := sink.Snapshot(ctx)

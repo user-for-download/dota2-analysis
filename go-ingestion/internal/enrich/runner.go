@@ -12,7 +12,6 @@ import (
 type RunnerOptions struct {
 	Sources []RunSource
 	HTTP    HTTPClient
-	Writer  RefDataWriter
 	Gate    gate.RunGate
 	Logger  *slog.Logger
 }
@@ -20,7 +19,6 @@ type RunnerOptions struct {
 type Runner struct {
 	sources []RunSource
 	http    HTTPClient
-	writer  RefDataWriter
 	gate    gate.RunGate
 	log     *slog.Logger
 }
@@ -39,7 +37,6 @@ func NewRunner(opts RunnerOptions) (*Runner, error) {
 	return &Runner{
 		sources: sorted,
 		http:    opts.HTTP,
-		writer: opts.Writer,
 		gate:    opts.Gate,
 		log:     opts.Logger.With("component", "enrich.runner"),
 	}, nil
@@ -109,8 +106,8 @@ func sortByDependencies(sources []RunSource) (sorted []RunSource, skipped []stri
 }
 
 func (r *Runner) Run(ctx context.Context) error {
-	if r.http == nil || r.writer == nil || r.gate == nil {
-		return fmt.Errorf("enrich: runner not fully wired (http/writer/gate)")
+	if r.http == nil || r.gate == nil {
+		return fmt.Errorf("enrich: runner not fully wired (http/gate)")
 	}
 	for _, s := range r.sources {
 		if err := ctx.Err(); err != nil {
@@ -140,7 +137,7 @@ func (r *Runner) runOne(ctx context.Context, s RunSource) error {
 	log.Info("source: starting")
 	start := time.Now()
 
-	err = s.Run(ctx, Deps{HTTP: r.http, Writer: r.writer, Logger: r.log})
+	err = s.Run(ctx, Deps{HTTP: r.http, Logger: r.log})
 	if err != nil {
 		outcome := gate.RunOutcome{Success: false, Err: err.Error(), At: start}
 		_ = r.gate.RecordRun(ctx, name, outcome)

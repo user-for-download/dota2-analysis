@@ -60,19 +60,22 @@ func Replay(
 		for rosterRows.Next() {
 			var matchID int64
 			var isRadiant bool
-			var accountIDs []int64
-			if err := rosterRows.Scan(&matchID, &isRadiant, &accountIDs); err != nil {
-				continue
+		// Use *int64 to handle NULL account_ids (anonymous players).
+		var accountPtrs []*int64
+		if err := rosterRows.Scan(&matchID, &isRadiant, &accountPtrs); err != nil {
+			continue
+		}
+		sr, ok := rosters[matchID]
+		if !ok {
+			sr = &sideRoster{}
+			rosters[matchID] = sr
+		}
+		ids := make([]domain.AccountID, 0, len(accountPtrs))
+		for _, ptr := range accountPtrs {
+			if ptr != nil {
+				ids = append(ids, domain.AccountID(*ptr))
 			}
-			sr, ok := rosters[matchID]
-			if !ok {
-				sr = &sideRoster{}
-				rosters[matchID] = sr
-			}
-			ids := make([]domain.AccountID, len(accountIDs))
-			for i, id := range accountIDs {
-				ids[i] = domain.AccountID(id)
-			}
+		}
 			if isRadiant {
 				sr.radiant = ids
 			} else {
@@ -90,7 +93,10 @@ func Replay(
 		       m.radiant_team_id, m.dire_team_id
 		FROM public.picks_bans pb
 		JOIN public.matches m ON m.match_id = pb.match_id
-		WHERE m.patch_id = $1 AND m.leagueid > 0
+		WHERE m.patch_id = $1
+		      AND m.leagueid > 0
+		      AND m.radiant_team_id IS NOT NULL
+		      AND m.dire_team_id IS NOT NULL
 		ORDER BY pb.match_id, pb.ord
 	`, cfg.PatchID)
 	if err != nil {

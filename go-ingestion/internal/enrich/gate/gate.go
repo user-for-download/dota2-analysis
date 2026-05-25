@@ -69,10 +69,12 @@ func (g *Gate) ShouldRun(ctx context.Context, name string) (bool, error) {
 }
 
 func (g *Gate) RecordRun(ctx context.Context, name string, outcome RunOutcome) error {
-	if !outcome.Success {
-		return nil
-	}
 	key := g.key(name)
+
+	if !outcome.Success {
+		// Enforce a 5-minute cooldown on failures
+		return g.cfg.Client.Set(ctx, key, outcome.At.Format(time.RFC3339), 5*time.Minute).Err()
+	}
 
 	var ttl time.Duration
 	if g.cfg.Mode == Once {

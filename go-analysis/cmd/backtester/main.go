@@ -48,6 +48,12 @@ func main() {
 	must(log, "bootstrap", err)
 	defer deps.Close()
 
+	// Block until featurizer has populated the materialized views
+	if err := bootstrap.WaitForLaunchKey(ctx, deps.DB, "featurizer_ready", log); err != nil {
+		log.Error("wait for featurizer", "err", err)
+		os.Exit(1)
+	}
+
 	// Determine patch ID: env var or config.
 	patchID := getPatchID(cfg, log)
 	if patchID == 0 {

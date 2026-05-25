@@ -4,12 +4,13 @@
 *.dll
 *.so
 *.dylib
+/api
 ###
 .opencode
 dump_out
 prc.json
 .tmp
-###
+/tmp/
 # Test binaries
 *.test
 
@@ -42,3 +43,4 @@ coverage.html
 # Environment
 .env
 .env.local
+

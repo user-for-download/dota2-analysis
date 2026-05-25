@@ -51,15 +51,10 @@ func (s *HeroesSource) Run(ctx context.Context, deps enrich.Deps) error {
 		})
 	}
 
-	writer := s.Writer
-	if writer == nil {
-		if w, ok := deps.Writer.(enrich.HeroesWriter); ok {
-			writer = w
-		} else {
-			return fmt.Errorf("heroes: writer not configured")
-		}
+	if s.Writer == nil {
+		return fmt.Errorf("heroes: writer not configured")
 	}
-	return writer.UpsertHeroes(ctx, refs)
+	return s.Writer.UpsertHeroes(ctx, refs)
 }
 
 type heroJSON struct {

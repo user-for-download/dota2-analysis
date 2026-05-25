@@ -2,6 +2,7 @@ package inmem
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -28,6 +29,13 @@ func New(policy queue.RetryPolicy) *Queue {
 }
 
 var _ queue.Queue = (*Queue)(nil)
+var _ queue.Publisher = (*Queue)(nil)
+var _ queue.Subscriber = (*Queue)(nil)
+
+// Publish implements queue.Publisher.  Delegates to Push.
+func (q *Queue) Publish(ctx context.Context, payload []byte) error {
+	return q.Push(ctx, payload)
+}
 
 func (q *Queue) Push(_ context.Context, payload []byte) error {
 	q.mu.Lock()
@@ -113,7 +121,40 @@ func (q *Queue) DLQ() []queue.Task {
 	return out
 }
 
-func (q *Queue) PendingLen() int64 {
+// Subscribe implements queue.Subscriber.  Polls the queue, calls handler
+// per message, and Acks or Retries as appropriate.  Blocks until ctx
+// is cancelled or a terminal error.
+func (q *Queue) Subscribe(ctx context.Context, handler queue.Handler) error {
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		tasks, err := q.Pop(ctx, 1, 100*time.Millisecond)
+		if errors.Is(err, queue.ErrEmpty) {
+			continue
+		}
+		if err != nil {
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return err
+			}
+			continue
+		}
+		for _, t := range tasks {
+			msg := queue.Message{ID: t.ID, Payload: t.Payload}
+			handlerErr := handler(ctx, msg)
+			switch {
+			case handlerErr == nil:
+				_ = q.Ack(ctx, t.ID)
+			case errors.Is(handlerErr, queue.ErrDrop):
+				_ = q.Ack(ctx, t.ID)
+			default:
+				_ = q.Retry(ctx, t, handlerErr.Error())
+			}
+		}
+	}
+}
+
+func (q *Queue) StreamLen() int64 {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	return int64(len(q.pending))

@@ -13,10 +13,19 @@ import (
 
 	goredis "github.com/redis/go-redis/v9"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/user-for-download/go-dota2/internal/queue"
 )
+
+// LatencySink records per-message processing latency.
+// Pass a minimal adapter from the consumer; avoids importing the full metrics package.
+type LatencySink interface {
+	RecordLatency(ctx context.Context, stage string, durationMs float64)
+}
 
 type AsyncRetryConfig struct {
 	ZSetKey    string
@@ -34,6 +43,13 @@ type Config struct {
 	Policy      queue.RetryPolicy
 	DeleteOnAck bool
 	Logger      *slog.Logger
+
+	// Subscribe settings (optional, only used by Subscribe).
+	SubscribeBatch   int           // Pop batch size (default 10)
+	SubscribeBlock   time.Duration // Pop block duration (default 2s)
+	SubscribeRecover bool          // run periodic stale-recovery goroutine
+	SubscribeStage   string        // stage label for latency metric
+	LatencySink      LatencySink   // records per-message latency
 }
 
 const (
@@ -41,6 +57,30 @@ const (
 	fieldRetry   = "r"
 	fieldReason  = "reason"
 )
+
+// luaRequeueAtomic atomically adds a new stream entry, acks the old one,
+// and deletes the old entry. Without this, a crash between XAdd and XAck
+// duplicates the message.
+//
+//	KEYS[1] = stream, KEYS[2] = group
+//	ARGV[1] = maxLen, ARGV[2] = old task ID to ack, ARGV[3..] = field-value pairs
+var luaRequeueAtomic = goredis.NewScript(`
+redis.call('XADD', KEYS[1], 'MAXLEN', '~', ARGV[1], '*', unpack(ARGV, 3))
+redis.call('XACK', KEYS[1], KEYS[2], ARGV[2])
+redis.call('XDEL', KEYS[1], ARGV[2])
+return 1
+`)
+
+// luaRouteDLQAtomic atomically adds to DLQ and acks/deletes the original.
+//
+//	KEYS[1] = DLQ stream, KEYS[2] = original stream, KEYS[3] = group
+//	ARGV[1] = maxLen, ARGV[2] = original task ID, ARGV[3..] = field-value pairs
+var luaRouteDLQAtomic = goredis.NewScript(`
+redis.call('XADD', KEYS[1], 'MAXLEN', '~', ARGV[1], '*', unpack(ARGV, 3))
+redis.call('XACK', KEYS[2], KEYS[3], ARGV[2])
+redis.call('XDEL', KEYS[2], ARGV[2])
+return 1
+`)
 
 type Queue struct {
 	rdb           *goredis.Client
@@ -84,6 +124,8 @@ func New(rdb *goredis.Client, cfg Config) (*Queue, error) {
 
 var _ queue.Queue = (*Queue)(nil)
 var _ queue.QueueObservable = (*Queue)(nil)
+var _ queue.Publisher = (*Queue)(nil)
+var _ queue.Subscriber = (*Queue)(nil)
 
 func (q *Queue) ensureGroup(ctx context.Context) error {
 	err := q.rdb.XGroupCreateMkStream(ctx, q.cfg.Stream, q.cfg.Group, "$").Err()
@@ -91,6 +133,11 @@ func (q *Queue) ensureGroup(ctx context.Context) error {
 		return nil
 	}
 	return fmt.Errorf("xgroup create: %w", err)
+}
+
+// Publish implements queue.Publisher.  Delegates to Push.
+func (q *Queue) Publish(ctx context.Context, payload []byte) error {
+	return q.Push(ctx, payload)
 }
 
 func (q *Queue) Push(ctx context.Context, payload []byte) error {
@@ -149,7 +196,11 @@ func (q *Queue) Pop(ctx context.Context, batch int, block time.Duration) ([]queu
 		t, err := decodeMessage(msg, q.propagator)
 		if err != nil {
 			q.log.Warn("decode failed; routing to DLQ", "id", msg.ID, "err", err)
-			_ = q.routeDLQ(ctx, queue.Task{ID: msg.ID}, "decode_error: "+err.Error())
+			if dlqErr := q.routeDLQ(ctx, queue.Task{ID: msg.ID}, "decode_error: "+err.Error()); dlqErr != nil {
+				q.log.Error("DLQ routing failed; message remains pending (will retry)",
+					"id", msg.ID, "dlq_err", dlqErr,
+				)
+			}
 			continue
 		}
 		out = append(out, t)
@@ -181,17 +232,9 @@ func (q *Queue) Retry(ctx context.Context, t queue.Task, reason string) error {
 		return q.scheduleAsyncRetry(ctx, t)
 	}
 
-	d := q.cfg.Policy.Backoff(t.RetryCount)
-	if d > 0 {
-		timer := time.NewTimer(d)
-		select {
-		case <-timer.C:
-		case <-ctx.Done():
-			timer.Stop()
-			return ctx.Err()
-		}
-		timer.Stop()
-	}
+	// No async retry configured — requeue immediately without blocking the
+	// subscriber loop. Backoff is naturally approximated by the retry count
+	// since each retry cycles through the full Pop → handle → Retry loop.
 	return q.requeue(ctx, t)
 }
 
@@ -232,7 +275,14 @@ func (q *Queue) scheduleAsyncRetry(ctx context.Context, t queue.Task) error {
 func (q *Queue) routeDLQ(ctx context.Context, t queue.Task, reason string) error {
 	if q.cfg.DLQStream == "" {
 		q.log.Warn("DLQ not configured; dropping task", "id", t.ID, "reason", reason, "retries", t.RetryCount)
-	} else {
+		if t.ID != "" {
+			_ = q.Ack(ctx, t.ID)
+		}
+		return nil
+	}
+
+	if t.ID == "" {
+		// No original message to ack; just add to DLQ.
 		err := q.rdb.XAdd(ctx, &goredis.XAddArgs{
 			Stream: q.cfg.DLQStream,
 			Values: map[string]any{
@@ -244,29 +294,34 @@ func (q *Queue) routeDLQ(ctx context.Context, t queue.Task, reason string) error
 		if err != nil {
 			return fmt.Errorf("xadd dlq: %w", err)
 		}
-	}
-	if t.ID == "" {
 		return nil
 	}
-	return q.Ack(ctx, t.ID)
+
+	// Atomic DLQ + ack to prevent duplication on crash.
+	keys := []string{q.cfg.DLQStream, q.cfg.Stream, q.cfg.Group}
+	args := []any{q.cfg.MaxLen, t.ID,
+		fieldPayload, t.Payload,
+		fieldRetry, strconv.Itoa(t.RetryCount),
+		fieldReason, reason,
+	}
+	_, err := luaRouteDLQAtomic.Run(ctx, q.rdb, keys, args...).Int64()
+	if err != nil {
+		return fmt.Errorf("atomic dlq: %w", err)
+	}
+	return nil
 }
 
 func (q *Queue) requeue(ctx context.Context, t queue.Task) error {
-	args := &goredis.XAddArgs{
-		Stream: q.cfg.Stream,
-		Values: map[string]any{
-			fieldPayload: t.Payload,
-			fieldRetry:   strconv.Itoa(t.RetryCount),
-		},
+	keys := []string{q.cfg.Stream, q.cfg.Group}
+	args := []any{q.cfg.MaxLen, t.ID,
+		fieldPayload, t.Payload,
+		fieldRetry, strconv.Itoa(t.RetryCount),
 	}
-	if q.cfg.MaxLen > 0 {
-		args.MaxLen = q.cfg.MaxLen
-		args.Approx = true
+	_, err := luaRequeueAtomic.Run(ctx, q.rdb, keys, args...).Int64()
+	if err != nil {
+		return fmt.Errorf("atomic requeue: %w", err)
 	}
-	if err := q.rdb.XAdd(ctx, args).Err(); err != nil {
-		return fmt.Errorf("xadd requeue: %w", err)
-	}
-	return q.Ack(ctx, t.ID)
+	return nil
 }
 
 func (q *Queue) RecoverStale(ctx context.Context, idleFor time.Duration, max int) ([]queue.Task, error) {
@@ -297,7 +352,11 @@ func (q *Queue) RecoverStale(ctx context.Context, idleFor time.Duration, max int
 		t, err := decodeMessage(msg, q.propagator)
 		if err != nil {
 			q.log.Warn("decode failed during recover; routing to DLQ", "id", msg.ID, "err", err)
-			_ = q.routeDLQ(ctx, queue.Task{ID: msg.ID}, "decode_error: "+err.Error())
+			if dlqErr := q.routeDLQ(ctx, queue.Task{ID: msg.ID}, "decode_error: "+err.Error()); dlqErr != nil {
+				q.log.Error("DLQ routing failed during recover; message remains pending",
+					"id", msg.ID, "dlq_err", dlqErr,
+				)
+			}
 			continue
 		}
 		out = append(out, t)
@@ -347,7 +406,10 @@ func isBusyGroup(err error) bool {
 	return err != nil && strings.HasPrefix(err.Error(), "BUSYGROUP")
 }
 
-func (q *Queue) PendingLen() int64 {
+// StreamLen returns the total number of entries in the stream (including
+// acknowledged messages that have not yet been trimmed). For the count of
+// unacknowledged messages, see InFlightLen.
+func (q *Queue) StreamLen() int64 {
 	if q.cfg.Stream == "" {
 		return 0
 	}
@@ -373,9 +435,177 @@ func (q *Queue) InFlightLen() int64 {
 
 func (q *Queue) Stats(ctx context.Context) (queue.QueueStats, error) {
 	return queue.QueueStats{
-		Pending:  q.PendingLen(),
-		InFlight: q.InFlightLen(),
+		StreamLen: q.StreamLen(),
+		InFlight:  q.InFlightLen(),
 	}, nil
+}
+
+// Subscribe implements queue.Subscriber.  It runs the Pop → handle → Ack/Retry
+// loop, handles backpressure, stale recovery, OTel tracing, and panic recovery.
+// Blocks until ctx is cancelled or a terminal error occurs.
+func (q *Queue) Subscribe(ctx context.Context, handler queue.Handler) error {
+	batch := q.cfg.SubscribeBatch
+	if batch <= 0 {
+		batch = 10
+	}
+	block := q.cfg.SubscribeBlock
+	if block <= 0 {
+		block = 2 * time.Second
+	}
+	baseBatch := batch
+	baseBlock := block
+
+	log := q.log.With("component", "redisstreams.subscriber")
+	tracer := otel.Tracer("redisstreams")
+
+	// Start stale recovery if configured
+	if q.cfg.SubscribeRecover {
+		go q.staleRecoveryLoop(ctx)
+	}
+
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+
+		// Backpressure: reduce batch / increase block when queue is deep
+		batch, block = q.adjustForBackpressure(batch, block, baseBatch, baseBlock, log)
+
+		tasks, err := q.Pop(ctx, batch, block)
+		if errors.Is(err, queue.ErrEmpty) {
+			continue
+		}
+		if err != nil {
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return err
+			}
+			log.Warn("queue pop", "err", err)
+			continue
+		}
+
+		for _, t := range tasks {
+			var retryWrapper struct {
+				Retry *int `json:"_retry"`
+			}
+			if err := json.Unmarshal(t.Payload, &retryWrapper); err == nil && retryWrapper.Retry != nil {
+				if *retryWrapper.Retry > t.RetryCount {
+					t.RetryCount = *retryWrapper.Retry
+				}
+			}
+
+			spanCtx := t.Ctx
+			if spanCtx == nil {
+				spanCtx = ctx
+			}
+
+			spanCtx, span := tracer.Start(spanCtx, "subscriber.process",
+				trace.WithAttributes(
+					attribute.String("task.id", t.ID),
+					attribute.Int("task.retry_count", t.RetryCount),
+				),
+			)
+			start := time.Now()
+
+			msg := queue.Message{ID: t.ID, Payload: t.Payload}
+			var handlerErr error
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						handlerErr = fmt.Errorf("handler panic: %v", r)
+					}
+				}()
+				handlerErr = handler(spanCtx, msg)
+			}()
+
+			if q.cfg.LatencySink != nil {
+				q.cfg.LatencySink.RecordLatency(spanCtx, q.cfg.SubscribeStage, float64(time.Since(start).Milliseconds()))
+			}
+
+			if handlerErr != nil {
+				span.RecordError(handlerErr)
+				span.SetStatus(codes.Error, handlerErr.Error())
+			} else {
+				span.SetStatus(codes.Ok, "success")
+			}
+			span.End()
+
+			switch {
+			case handlerErr == nil:
+				_ = q.Ack(ctx, t.ID)
+			case errors.Is(handlerErr, queue.ErrDrop):
+				_ = q.Ack(ctx, t.ID)
+			default:
+				_ = q.Retry(ctx, t, handlerErr.Error())
+			}
+		}
+	}
+}
+
+func (q *Queue) staleRecoveryLoop(ctx context.Context) {
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+	log := q.log.With("component", "redisstreams.stale_recovery")
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			tasks, err := q.RecoverStale(ctx, 10*time.Minute, 100)
+			if err != nil {
+				log.Warn("stale recovery", "err", err)
+				continue
+			}
+			if len(tasks) == 0 {
+				continue
+			}
+			requeued := 0
+			dropped := 0
+			for _, t := range tasks {
+				payload := withRetryCount(t.Payload, t.RetryCount)
+				if err := q.Push(ctx, payload); err != nil {
+					log.Warn("stale re-enqueue failed", "id", t.ID, "err", err)
+					dropped++
+					continue
+				}
+				_ = q.Ack(ctx, t.ID)
+				requeued++
+			}
+			log.Info("recovered stale", "count", len(tasks), "requeued", requeued, "dropped", dropped)
+		}
+	}
+}
+
+const (
+	maxBlockDuration = 5 * time.Second
+	recoverThreshold = 1000
+)
+
+func (q *Queue) adjustForBackpressure(batch int, block time.Duration, baseBatch int, baseBlock time.Duration, log *slog.Logger) (int, time.Duration) {
+	pending := q.StreamLen()
+	inFlight := q.InFlightLen()
+
+	if pending > 10000 {
+		batch = max(batch/2, 1)
+		block = min(block*2, maxBlockDuration)
+		log.Debug("backpressure: reducing rate",
+			"pending", pending, "in_flight", inFlight,
+			"new_batch", batch, "new_block", block)
+	} else if pending < recoverThreshold && (batch < baseBatch || block > baseBlock) {
+		batch = min(batch+1, baseBatch)
+		if block > baseBlock {
+			block = max(block/2, baseBlock)
+		}
+		log.Debug("backpressure: recovering",
+			"pending", pending, "in_flight", inFlight,
+			"new_batch", batch, "new_block", block)
+	} else if batch != baseBatch || block != baseBlock {
+		log.Debug("backpressure: stable",
+			"pending", pending, "in_flight", inFlight,
+			"batch", batch, "block", block,
+			"base_batch", baseBatch, "base_block", baseBlock)
+	}
+	return batch, block
 }
 
 func (q *Queue) EnableAsyncRetry(cfg AsyncRetryConfig) {
@@ -471,6 +701,24 @@ func extractRetryCount(payload string) string {
 		return "0"
 	}
 	return strconv.Itoa(t.RetryCount)
+}
+
+// withRetryCount injects the retry count into a JSON payload as _retry.
+// Used by stale recovery to preserve retry state across re-enqueue.
+func withRetryCount(payload []byte, retryCount int) []byte {
+	if retryCount <= 0 {
+		return payload
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(payload, &raw); err != nil {
+		return payload
+	}
+	raw["_retry"] = retryCount
+	out, err := json.Marshal(raw)
+	if err != nil {
+		return payload
+	}
+	return out
 }
 
 // extractOriginalPayload unwraps the payload stored by scheduleAsyncRetry.

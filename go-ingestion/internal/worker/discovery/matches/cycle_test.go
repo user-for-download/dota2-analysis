@@ -81,8 +81,8 @@ func TestMatchesCycleRunOnce(t *testing.T) {
 		t.Fatalf("RunOnce: %v", err)
 	}
 
-	if q.PendingLen() != 1 {
-		t.Errorf("PendingLen = %d, want 1 (42 is pushed, 43 is skipped, 0/invalid ignored)", q.PendingLen())
+	if q.StreamLen() != 1 {
+		t.Errorf("StreamLen = %d, want 1 (42 is pushed, 43 is skipped, 0/invalid ignored)", q.StreamLen())
 	}
 }
 

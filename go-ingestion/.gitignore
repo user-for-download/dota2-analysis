@@ -9,5 +9,6 @@ dump_out/
 *.json
 .dumperrc
 proxy.txt
+config/proxy.txt
 prc.json
 .opencode

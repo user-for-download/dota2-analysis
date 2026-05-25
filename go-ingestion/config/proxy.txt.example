@@ -1,0 +1,21 @@
+# ─────────────────────────────────────────────────────────────
+# proxy.txt — Proxy list for the go-ingestion pipeline
+# ─────────────────────────────────────────────────────────────
+# Place one proxy per line. Empty lines and lines starting with
+# '#' are ignored.
+#
+# Supported protocols: http, https, socks5
+#
+# Format:
+#   <protocol>://[user:pass@]host:port
+#
+# Examples:
+#   http://user:pass@proxy.example.com:8080
+#   http://198.51.100.42:3128
+#   https://10.0.0.1:443
+#   socks5://127.0.0.1:9050
+#
+# To use this configuration:
+#   cp proxy.txt.example proxy.txt
+#   # then populate proxy.txt with real proxies
+# ─────────────────────────────────────────────────────────────

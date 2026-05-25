@@ -1,4 +1,4 @@
-# go-dota2
+# go-ingestion
 
 A distributed pipeline for discovering, fetching, parsing, and enriching
 Dota 2 match data. Written in Go, backed by Redis (queues, proxy pool,
@@ -44,8 +44,10 @@ Jaeger  ─▶ http://localhost:16686 (traces + metrics)
 
 - Docker + Docker Compose with the Buildx plugin
 - `make`
-- A list of working proxies in `deploy/proxy.txt` (see
-  `deploy/proxy.txt.example`)
+- A list of working proxies in `go-ingestion/config/proxy.txt` (see
+  `go-ingestion/config/proxy.txt.example`)
+- Fetch external reference data: `make bootstrap` or `make fetch-constants && make fetch-proxies`
+  (these download dotaconstants JSON and proxy lists before first run)
 
 ### One-command bring-up
 
@@ -67,49 +69,61 @@ match IDs and the rest of the pipeline picks up.
 ### Useful targets
 
 ```sh
-make help          # list available targets
-make build         # build all images (cached)
-make rebuild       # build without cache
-make up-db         # start only Redis + Postgres
-make migrate       # run migrations once
-make shell-db      # open psql on the running container
-make shell-redis   # open redis-cli
-make downv         # stop everything and remove volumes
-make armageddon    # nuke project images, volumes, build cache
+make help             # list available targets
+make build            # build all images (cached)
+make rebuild          # build without cache
+make up-db            # start only Redis + Postgres
+make migrate          # run migrations once
+make fetch-constants  # download dotaconstants JSON to go-ingestion/assets/dotaconstants/
+make fetch-proxies    # download proxy list to go-ingestion/config/proxy.txt
+make bootstrap        # fetch-constants + fetch-proxies (run before first startup)
+make shell-db         # open psql on the running container
+make shell-redis      # open redis-cli
+make downv            # stop everything and remove volumes
+make armageddon       # nuke project images, volumes, build cache
 ```
 
 ## Repository Layout
 
 ```
-cmd/                       Entry points (one main per binary)
-  discoverer/  fetcher/  parser/  enricher/
-  proxyloader/  migrator/
-internal/
-  bootstrap/               Wires Redis/Postgres/metrics from Config
-  config/                  Env-driven configuration with all settings
-  dedup/  payload/  queue/ Domain abstractions + adapters
-  proxy/                   Pool, loader, validator, transports
-  metrics/                 Sink, in-mem/otelmetrics variants
-  enrich/                  Reference-data sources (RunSource interface)
-  enrich/sources/          dotaconstants providers
-  storage/                 matchstore, refdatastore, lookupstore, postgres, redis, …
-  worker/                  Pipeline runner + Handler interface
-  proxy/httpdo/             OTel-wrapped HTTPDoer
-  queue/redisstreams/       Queue with W3C trace propagation
-deploy/
-  docker-bake.hcl          Buildx bake definition
-  docker-compose.yml       Service composition (profiles: db/migrate/workers/all)
-  dockerfiles/             One Dockerfile per binary, sharing a base
-  migrations/              Numbered SQL migrations
-  queries/                 Discoverer SQL queries (one .sql per key)
-  proxy.txt.example        Proxy seed format
-Makefile
+go-ingestion/               ← This module
+  cmd/                      Entry points (one main per binary)
+    discoverer/  fetcher/  parser/  enricher/
+    proxyloader/  migrator/
+  internal/
+    bootstrap/              Wires Redis/Postgres/metrics from Config
+    config/                 Env-driven configuration with all settings
+    dedup/  payload/  queue/ Domain abstractions + adapters
+    proxy/                  Pool, loader, validator, transports
+    metrics/                Sink, in-mem/otelmetrics variants
+    enrich/                 Reference-data sources (RunSource interface)
+    enrich/sources/         dotaconstants providers
+    storage/                matchstore, refdatastore, lookupstore, postgres, redis, …
+    worker/                 Pipeline runner + Handler interface
+    proxy/httpdo/           OTel-wrapped HTTPDoer
+    queue/redisstreams/     Queue with W3C trace propagation
+  assets/
+    queries/                Discoverer SQL queries (one .sql per key, one subdir per cycle)
+    dotaconstants/          Cached dotaconstants JSON for offline enricher bootstrap
+  build/
+    dockerfiles/            One Dockerfile per binary, sharing a base
+  config/
+    proxy.txt               Proxy seed file
+    proxy.txt.example       Proxy seed format
+  Makefile                  Module build targets
+
+deploy/                     ← Shared orchestration (repo root)
+  docker-bake.hcl           Buildx bake definition
+  docker-compose.yml        Service composition (profiles: db/migrate/workers/all)
+  .env / .env.example       Consolidated environment variables (all 149 vars)
 ```
 
 ## Configuration
 
-All settings come from environment variables (see
-`internal/config/config.go` for the complete list and defaults).
+All settings come from environment variables. The canonical source of
+truth is `deploy/.env` (149 vars, consolidated at the repo root) —
+copy it to `deploy/.env` and edit. See also
+`internal/config/config.go` for Go-side defaults.
 The most commonly overridden ones:
 
 ### Redis
@@ -143,7 +157,7 @@ The most commonly overridden ones:
 
 | Variable                   | Default |
 |----------------------------|---------|
-| `FETCHER_UPSTREAM_URL`     | *(required, must contain `%d`)* |
+| `FETCHER_UPSTREAM_URL`     | *(required)* — match ID appended by code (no `%d`!) |
 | `FETCHER_BATCH`            | `10`    |
 | `FETCHER_HTTP_TIMEOUT`     | `30s`   |
 | `FETCHER_PAYLOAD_TTL`      | `72h`   |
@@ -185,6 +199,7 @@ The most commonly overridden ones:
 | Variable                    | Default                                                              |
 |----------------------------|----------------------------------------------------------------------|
 | `ENRICH_DOTACONSTANTS_BASE_URL` | `https://raw.githubusercontent.com/odota/dotaconstants/master/build` |
+| `ENRICH_LOCAL_DIR`       | *(empty)*                                                       | Path to local dotaconstants JSON for offline bootstrap (e.g. `/dotaconstants`) |
 | `ENRICH_INTERVAL`        | `24h`                                                            |
 | `ENRICH_ALLOW_DIRECT`    | `false`                                                          |
 | `ENRICH_FORCE_BOOTSTRAP` | `false`                                                          |
@@ -218,12 +233,14 @@ propagated through Redis Streams.
 ### Run a single discovery query
 
 ```sh
-docker compose -p go-dota2 -f deploy/docker-compose.yml \
-  run --rm discoverer ./discoverer --file pro_matches_24h
+make ingestion
+# Or from the repo root:
+docker compose -p dota2-analysis --project-directory . -f deploy/docker-compose.yml \
+  run --rm discoverer ./discoverer --file matches
 ```
 
 The `--file` flag uses the basename of any `.sql` file in
-`deploy/queries/` and runs once before exiting.
+`go-ingestion/assets/queries/<cycle>/` and runs once before exiting.
 
 ### Inspect a queue
 
@@ -243,12 +260,12 @@ make shell-db
 
 ### Add a database migration
 
-1. Create `deploy/migrations/00N_<name>.sql`.
+1. Create `go-core/schema/migrations/NNN_name.sql` (see the root `Makefile`'s `new-migration` target).
 2. `make migrate` (or restart the stack — migrator runs at boot).
 
 ### Add a discovery query
 
-1. Drop your SQL into `deploy/queries/<key>.sql`.
+1. Drop your SQL into `go-ingestion/assets/queries/<cycle>/<key>.sql`.
 2. Restart the discoverer, or run it ad-hoc with `--file <key>`.
 
 ### Add an enrichment source
@@ -288,5 +305,6 @@ make migrate-local
 ```
 
 This expects `POSTGRES_*` env vars to point at a reachable Postgres
-instance and `MIGRATIONS_DIR` (default `./deploy/migrations`) to be
+instance and `MIGRATOR_MIGRATIONS_DIR` (default `/migrations` inside Docker;
+locally use `MIGRATOR_MIGRATIONS_DIR=./go-core/schema/migrations`) to be
 readable.

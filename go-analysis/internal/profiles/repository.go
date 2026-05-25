@@ -83,7 +83,7 @@ type Repository interface {
 	// Feature-source batch lookups (one round-trip per call).
 	TeamHeroStatsBatch(ctx context.Context, teamID domain.TeamID, heroes []domain.HeroID) (map[domain.HeroID]TeamHeroStats, error)
 	SynergyAvgBatch(ctx context.Context, allies []domain.HeroID, candidates []domain.HeroID) (map[domain.HeroID]float64, error)
-	CounterAvgBatch(ctx context.Context, enemies []domain.HeroID, candidates []domain.HeroID) (map[domain.HeroID]float64, error)
+	CounterAvgBatch(ctx context.Context, candidates []domain.HeroID, enemies []domain.HeroID) (map[domain.HeroID]float64, error)
 	RosterComfortAvgBatch(ctx context.Context, roster []domain.AccountID, heroes []domain.HeroID) (map[domain.HeroID]float64, error)
 	StarThreatBatch(ctx context.Context, themTeamID domain.TeamID, heroes []domain.HeroID, minGames int) (map[domain.HeroID]float64, error)
 }

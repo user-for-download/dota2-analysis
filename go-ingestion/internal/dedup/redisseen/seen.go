@@ -73,6 +73,8 @@ var _ dedup.Seen = (*Seen)(nil)
 
 func (s *Seen) MarkSeen(ctx context.Context, key string) (bool, error) {
 	if s.cfg.UseBloom {
+		// BF.ADD returns 1 if item was newly added, 0 if it already existed.
+		// MarkSeen returns (alreadySeen bool), so we return added == 0.
 		added, err := s.rdb.Do(ctx, "BF.ADD", s.bloomKey, key).Int64()
 		if err != nil {
 			return false, fmt.Errorf("bf.add: %w", err)

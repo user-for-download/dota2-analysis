@@ -26,7 +26,7 @@ import (
 	"github.com/user-for-download/go-dota2/internal/storage/pgclient"
 	storageredis "github.com/user-for-download/go-dota2/internal/storage/redis"
 
-	"github.com/user-for-download/go-dota2/internal/enrich"
+	"github.com/user-for-download/go-dota2/internal/storage/refdatastore"
 )
 
 type Deps struct {
@@ -133,7 +133,7 @@ type QueueSpec struct {
 	DLQStream string
 }
 
-func Queue(rdb *goredis.Client, spec QueueSpec, cfg config.QueueConfig, log *slog.Logger) (queue.Queue, error) {
+func Queue(rdb *goredis.Client, spec QueueSpec, cfg config.QueueConfig, log *slog.Logger) (queue.PubSub, error) {
 	q, err := redisstreams.New(rdb, redisstreams.Config{
 		Stream:      spec.Stream,
 		DLQStream:   spec.DLQStream,
@@ -153,11 +153,11 @@ func Queue(rdb *goredis.Client, spec QueueSpec, cfg config.QueueConfig, log *slo
 	return q, nil
 }
 
-func FetchQueue(rdb *goredis.Client, cfg config.QueueConfig, log *slog.Logger) (queue.Queue, error) {
+func FetchQueue(rdb *goredis.Client, cfg config.QueueConfig, log *slog.Logger) (queue.PubSub, error) {
 	return Queue(rdb, QueueSpec{Stream: cfg.FetchStream, DLQStream: cfg.FetchDLQStream}, cfg, log)
 }
 
-func ParseQueue(rdb *goredis.Client, cfg config.QueueConfig, log *slog.Logger) (queue.Queue, error) {
+func ParseQueue(rdb *goredis.Client, cfg config.QueueConfig, log *slog.Logger) (queue.PubSub, error) {
 	return Queue(rdb, QueueSpec{Stream: cfg.ParseStream, DLQStream: cfg.ParseDLQStream}, cfg, log)
 }
 
@@ -190,6 +190,6 @@ func MatchWriter(db *pgxpool.Pool, log *slog.Logger) matchstore.MatchWriter {
 	return pgclient.NewStores(db, log).Matches
 }
 
-func ReferenceWriter(db *pgxpool.Pool, log *slog.Logger) enrich.RefDataWriter {
+func ReferenceWriter(db *pgxpool.Pool, log *slog.Logger) refdatastore.RefDataWriter {
 	return pgclient.NewStores(db, log).RefData
 }

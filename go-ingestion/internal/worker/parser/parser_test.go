@@ -16,8 +16,12 @@ import (
 	"github.com/user-for-download/go-dota2/internal/queue"
 	queueinmem "github.com/user-for-download/go-dota2/internal/queue/inmem"
 	"github.com/user-for-download/go-dota2/internal/storage/matchstore"
-	"github.com/user-for-download/go-dota2/internal/worker"
 )
+
+// msgFromTask converts a queue.Task to a queue.Message for testing handlers.
+func msgFromTask(t queue.Task) queue.Message {
+	return queue.Message{ID: t.ID, Payload: t.Payload}
+}
 
 type fakeIngester struct {
 	mu      sync.Mutex
@@ -106,7 +110,7 @@ func TestParseHappyPath(t *testing.T) {
 
 	tasks, _ := q.Pop(ctx, 10, 100*time.Millisecond)
 	for _, tk := range tasks {
-		_, _ = p.Process(ctx, tk)
+		_ = p.handleMessage(ctx, msgFromTask(tk))
 	}
 
 	if len(ing.matches) != 1 || ing.matches[0].MatchID != 42 {
@@ -130,7 +134,7 @@ func TestParsePayloadMissing(t *testing.T) {
 
 	tasks, _ := q.Pop(ctx, 10, 100*time.Millisecond)
 	for _, tk := range tasks {
-		_, _ = p.Process(ctx, tk)
+		_ = p.handleMessage(ctx, msgFromTask(tk))
 	}
 
 	if len(ing.matches) != 0 {
@@ -154,7 +158,7 @@ func TestParseDecodeFailure(t *testing.T) {
 
 	tasks, _ := q.Pop(ctx, 10, 100*time.Millisecond)
 	for _, tk := range tasks {
-		_, _ = p.Process(ctx, tk)
+		_ = p.handleMessage(ctx, msgFromTask(tk))
 	}
 
 	snap, _ := sink.Snapshot(ctx)
@@ -176,7 +180,7 @@ func TestParseValidateFailure(t *testing.T) {
 
 	tasks, _ := q.Pop(ctx, 10, 100*time.Millisecond)
 	for _, tk := range tasks {
-		_, _ = p.Process(ctx, tk)
+		_ = p.handleMessage(ctx, msgFromTask(tk))
 	}
 
 	snap, _ := sink.Snapshot(ctx)
@@ -195,17 +199,16 @@ func TestParseIngesterFailureRetries(t *testing.T) {
 
 	tasks, _ := q.Pop(ctx, 10, 100*time.Millisecond)
 	for _, tk := range tasks {
-		result, _ := p.Process(ctx, tk)
-		if result != worker.ResultRetry {
-			t.Errorf("result = %v, want %v", result, worker.ResultRetry)
+		err := p.handleMessage(ctx, msgFromTask(tk))
+		// handler returns error for retry, nil for success/ErrDrop
+		if err == nil || errors.Is(err, queue.ErrDrop) {
+			t.Errorf("expected retry error, got %v", err)
 		}
-		// Simulate what the runner does: re-enqueue on retry
-		if result == worker.ResultRetry {
-			_ = q.Push(ctx, tk.Payload)
-		}
+		// Simulate what Subscribe does: re-enqueue on retry
+		_ = q.Push(ctx, tk.Payload)
 	}
 
-	if q.PendingLen() != 1 {
-		t.Errorf("pending = %d, want 1 (retry)", q.PendingLen())
+	if q.StreamLen() != 1 {
+		t.Errorf("pending = %d, want 1 (retry)", q.StreamLen())
 	}
 }
