@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -53,7 +54,12 @@ func main() {
 	}
 
 	log.Info("running migrations from embedded schema")
-	if err := migrator.Run(ctx, dsn, schema.Migrations, log); err != nil {
+	migFS, err := fs.Sub(schema.Migrations, "migrations")
+	if err != nil {
+		log.Error("sub migrations", "err", err)
+		os.Exit(1)
+	}
+	if err := migrator.Run(ctx, dsn, migFS, log); err != nil {
 		log.Error("migration failed", "err", err)
 		os.Exit(1)
 	}
