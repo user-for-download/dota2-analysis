@@ -33,7 +33,7 @@ services:
             interval: 5s
             timeout: 3s
             retries: 5
-        networks: [dota2-net]
+        networks: [infra-net]
 
     postgres:
         image: postgres:16-alpine
@@ -54,7 +54,7 @@ services:
             interval: 5s
             timeout: 3s
             retries: 5
-        networks: [dota2-net]
+        networks: [infra-net]
 
     jaeger:
         image: jaegertracing/all-in-one:latest
@@ -64,7 +64,7 @@ services:
         ports:
             - "127.0.0.1:16686:16686"
             - "127.0.0.1:4318:4318"
-        networks: [dota2-net]
+        networks: [infra-net]
 
     # ───── Schema ─────
 
@@ -86,7 +86,7 @@ services:
         depends_on:
             postgres:
                 condition: service_healthy
-        networks: [dota2-net]
+        networks: [infra-net]
 
     # ───── Ingestion Pipeline ─────
 
@@ -105,7 +105,7 @@ services:
               target: /app/proxy.txt
         depends_on:
             redis: { condition: service_healthy }
-        networks: [dota2-net]
+        networks: [ingestion-net, infra-net]
 
     discoverer:
         image: go-dota2-discoverer:${TAG:-latest}
@@ -134,7 +134,7 @@ services:
             redis: { condition: service_healthy }
             postgres: { condition: service_healthy }
             migrator: { condition: service_completed_successfully }
-        networks: [dota2-net]
+        networks: [ingestion-net, infra-net]
 
     enricher:
         image: go-dota2-enricher:${TAG:-latest}
@@ -155,7 +155,7 @@ services:
             redis: { condition: service_healthy }
             postgres: { condition: service_healthy }
             migrator: { condition: service_completed_successfully }
-        networks: [dota2-net]
+        networks: [ingestion-net, infra-net]
 
     fetcher:
         image: go-dota2-fetcher:${TAG:-latest}
@@ -177,7 +177,7 @@ services:
         depends_on:
             redis: { condition: service_healthy }
             migrator: { condition: service_completed_successfully }
-        networks: [dota2-net]
+        networks: [ingestion-net, infra-net]
 
     parser:
         image: go-dota2-parser:${TAG:-latest}
@@ -194,7 +194,7 @@ services:
         depends_on:
             redis: { condition: service_healthy }
             migrator: { condition: service_completed_successfully }
-        networks: [dota2-net]
+        networks: [ingestion-net, infra-net]
 
     # ───── Analytics Pipeline ─────
 
@@ -222,7 +222,7 @@ services:
         depends_on:
             postgres: { condition: service_healthy }
             migrator: { condition: service_completed_successfully }
-        networks: [dota2-net]
+        networks: [analytics-net, infra-net]
 
     featurizer:
         image: go-dota2-analysis-featurizer:${TAG:-latest}
@@ -240,7 +240,7 @@ services:
         depends_on:
             postgres: { condition: service_healthy }
             migrator: { condition: service_completed_successfully }
-        networks: [dota2-net]
+        networks: [analytics-net, infra-net]
 
     backtester:
         image: go-dota2-analysis-backtester:${TAG:-latest}
@@ -263,7 +263,7 @@ services:
         depends_on:
             postgres: { condition: service_healthy }
             migrator: { condition: service_completed_successfully }
-        networks: [dota2-net]
+        networks: [analytics-net, infra-net]
 
 volumes:
     redis-data:
@@ -274,5 +274,14 @@ configs:
         file: ./go-ingestion/config/proxy.txt
 
 networks:
-    dota2-net:
+    infra-net:
         driver: bridge
+        internal: false  # postgres/redis/jaeger — needs host ports
+
+    ingestion-net:
+        driver: bridge
+        internal: true   # no external ports needed
+
+    analytics-net:
+        driver: bridge
+        internal: false  # api gateway exposes :8080
