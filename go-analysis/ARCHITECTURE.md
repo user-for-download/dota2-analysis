@@ -295,7 +295,6 @@ go-analysis/
 ├── sql/                         # Operational SQL scripts (derive/verify phase table)
 ├── training/                    # Python ML trainer (LightGBM)
 ├── go.mod / go.sum
-└── Makefile
 ```
 
 Orchestration files live at the monorepo root:

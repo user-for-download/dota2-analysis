@@ -112,7 +112,6 @@ go-ingestion/               ← This module
   config/
     proxy.txt               Proxy seed file
     proxy.txt.example       Proxy seed format
-  Makefile                  Module build targets
 
 deploy/                     ← Shared orchestration (repo root)
   docker-bake.hcl           Buildx bake definition

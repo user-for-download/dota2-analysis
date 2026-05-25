@@ -43,8 +43,11 @@ build: ## Build all Docker images
 infra: ## Start infrastructure (Postgres + Redis + Jaeger)
 	$(COMPOSE) --profile infra up
 
-migrate: ## Run database migrations
+migrate: ## Run database migrations (via Docker compose)
 	$(COMPOSE) --profile all run --rm migrator
+
+migrate-local: ## Run migrations against local Postgres (no Docker)
+	go run -mod=mod ./go-ingestion/cmd/migrator
 
 ingestion: ## Start the ingestion pipeline
 	$(COMPOSE) --profile ingestion up
