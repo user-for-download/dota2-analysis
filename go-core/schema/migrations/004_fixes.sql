@@ -14,95 +14,111 @@
 -- =====================================================
 CREATE EXTENSION IF NOT EXISTS pg_cron;
 
--- Schedule analytics MV refreshes daily at 2 AM UTC.
--- REFRESH CONCURRENTLY allows reads during refresh.
--- Each MV is independent (no cross-MV dependencies).
---
--- Each refresh is wrapped in an advisory lock so that if a previous run
--- is still in progress (e.g., due to data volume spikes), the new run
--- is skipped rather than stacked. Overlaps can be monitored via:
+-- =====================================================
+-- Helper Functions for Locked MV Refreshes
+-- Standalone functions so that cron.schedule() only needs
+-- to call a simple SELECT (nested DO blocks inside the
+-- schedule string are not valid SQL).
+-- =====================================================
+
+CREATE OR REPLACE FUNCTION analytics.refresh_mv_team_hero_profile_locked()
+RETURNS VOID LANGUAGE plpgsql AS $$
+BEGIN
+    IF pg_try_advisory_lock(hashtext('r_mv_team_hero_profile')) THEN
+        REFRESH MATERIALIZED VIEW CONCURRENTLY analytics.mv_team_hero_profile;
+        PERFORM pg_advisory_unlock(hashtext('r_mv_team_hero_profile'));
+    ELSE
+        RAISE NOTICE 'Skipping mv_team_hero_profile: lock held';
+    END IF;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION analytics.refresh_mv_hero_synergy_locked()
+RETURNS VOID LANGUAGE plpgsql AS $$
+BEGIN
+    IF pg_try_advisory_lock(hashtext('r_mv_hero_synergy')) THEN
+        REFRESH MATERIALIZED VIEW CONCURRENTLY analytics.mv_hero_synergy;
+        PERFORM pg_advisory_unlock(hashtext('r_mv_hero_synergy'));
+    ELSE
+        RAISE NOTICE 'Skipping mv_hero_synergy: lock held';
+    END IF;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION analytics.refresh_mv_hero_counter_locked()
+RETURNS VOID LANGUAGE plpgsql AS $$
+BEGIN
+    IF pg_try_advisory_lock(hashtext('r_mv_hero_counter')) THEN
+        REFRESH MATERIALIZED VIEW CONCURRENTLY analytics.mv_hero_counter;
+        PERFORM pg_advisory_unlock(hashtext('r_mv_hero_counter'));
+    ELSE
+        RAISE NOTICE 'Skipping mv_hero_counter: lock held';
+    END IF;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION analytics.refresh_mv_player_team_history_locked()
+RETURNS VOID LANGUAGE plpgsql AS $$
+BEGIN
+    IF pg_try_advisory_lock(hashtext('r_mv_player_team_history')) THEN
+        REFRESH MATERIALIZED VIEW CONCURRENTLY analytics.mv_player_team_history;
+        PERFORM pg_advisory_unlock(hashtext('r_mv_player_team_history'));
+    ELSE
+        RAISE NOTICE 'Skipping mv_player_team_history: lock held';
+    END IF;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION analytics.refresh_mv_player_hero_profile_locked()
+RETURNS VOID LANGUAGE plpgsql AS $$
+BEGIN
+    IF pg_try_advisory_lock(hashtext('r_mv_player_hero_profile')) THEN
+        REFRESH MATERIALIZED VIEW CONCURRENTLY analytics.mv_player_hero_profile;
+        PERFORM pg_advisory_unlock(hashtext('r_mv_player_hero_profile'));
+    ELSE
+        RAISE NOTICE 'Skipping mv_player_hero_profile: lock held';
+    END IF;
+END;
+$$;
+
+-- =====================================================
+-- Schedule Jobs via cron.schedule()
+-- Each calls a simple SELECT function — no nested DO blocks.
+-- Overlaps can be monitored via:
 --   SELECT * FROM cron.job_run_details ORDER BY start_time DESC LIMIT 10;
---
--- Wrapped in DO block so that if pg_cron background worker is not running
--- (e.g., shared_preload_libraries misconfiguration), the migration still
--- succeeds. The cron.schedule documentation explains the prerequisite.
+-- =====================================================
 DO $$
 BEGIN
     PERFORM cron.schedule(
         'refresh-mv-team-hero-profile', '0 2 * * *',
-        $$
-        DO $$ BEGIN
-            IF pg_try_advisory_lock(hashtext('r_mv_team_hero_profile')) THEN
-                REFRESH MATERIALIZED VIEW CONCURRENTLY analytics.mv_team_hero_profile;
-                PERFORM pg_advisory_unlock(hashtext('r_mv_team_hero_profile'));
-            END IF;
-        END $$;
-        $$
+        $$SELECT analytics.refresh_mv_team_hero_profile_locked()$$
     );
     PERFORM cron.schedule(
         'refresh-mv-hero-synergy', '0 2 * * *',
-        $$
-        DO $$ BEGIN
-            IF pg_try_advisory_lock(hashtext('r_mv_hero_synergy')) THEN
-                REFRESH MATERIALIZED VIEW CONCURRENTLY analytics.mv_hero_synergy;
-                PERFORM pg_advisory_unlock(hashtext('r_mv_hero_synergy'));
-            END IF;
-        END $$;
-        $$
+        $$SELECT analytics.refresh_mv_hero_synergy_locked()$$
     );
     PERFORM cron.schedule(
         'refresh-mv-hero-counter', '0 2 * * *',
-        $$
-        DO $$ BEGIN
-            IF pg_try_advisory_lock(hashtext('r_mv_hero_counter')) THEN
-                REFRESH MATERIALIZED VIEW CONCURRENTLY analytics.mv_hero_counter;
-                PERFORM pg_advisory_unlock(hashtext('r_mv_hero_counter'));
-            END IF;
-        END $$;
-        $$
+        $$SELECT analytics.refresh_mv_hero_counter_locked()$$
     );
     PERFORM cron.schedule(
         'refresh-mv-player-team-history', '0 2 * * *',
-        $$
-        DO $$ BEGIN
-            IF pg_try_advisory_lock(hashtext('r_mv_player_team_history')) THEN
-                REFRESH MATERIALIZED VIEW CONCURRENTLY analytics.mv_player_team_history;
-                PERFORM pg_advisory_unlock(hashtext('r_mv_player_team_history'));
-            END IF;
-        END $$;
-        $$
+        $$SELECT analytics.refresh_mv_player_team_history_locked()$$
     );
     PERFORM cron.schedule(
         'refresh-mv-player-hero-profile', '0 2 * * *',
-        $$
-        DO $$ BEGIN
-            IF pg_try_advisory_lock(hashtext('r_mv_player_hero_profile')) THEN
-                REFRESH MATERIALIZED VIEW CONCURRENTLY analytics.mv_player_hero_profile;
-                PERFORM pg_advisory_unlock(hashtext('r_mv_player_hero_profile'));
-            END IF;
-        END $$;
-        $$
+        $$SELECT analytics.refresh_mv_player_hero_profile_locked()$$
     );
-EXCEPTION WHEN OTHERS THEN
-    RAISE WARNING 'pg_cron scheduling skipped: % (is shared_preload_libraries=pg_cron set?)', SQLERRM;
-END;
-$$;
-
--- Schedule weekly partition maintenance (Sundays at 1 AM UTC).
--- Creates time-range partitions 8 quarters (2 years) ahead
--- so data never leaks into default partitions.
-DO $$
-BEGIN
     PERFORM cron.schedule(
         'maintain-time-partitions', '0 1 * * 0',
-        'SELECT ensure_future_time_partitions(ARRAY[''matches'',''player_matches'',''public_matches'',''player_timeseries''], 8)'
+        $$SELECT ensure_future_time_partitions(ARRAY['matches','player_matches','public_matches','player_timeseries'], 8)$$
     );
     PERFORM cron.schedule(
         'drop-old-partitions', '0 3 * * 0',
-        'SELECT drop_old_time_partitions(ARRAY[''matches'',''player_matches'',''public_matches'',''player_timeseries''], 2)'
+        $$SELECT drop_old_time_partitions(ARRAY['matches','player_matches','public_matches','player_timeseries'], 2)$$
     );
 EXCEPTION WHEN OTHERS THEN
-    RAISE WARNING 'pg_cron partition scheduling skipped: % (is shared_preload_libraries=pg_cron set?)', SQLERRM;
+    RAISE WARNING 'pg_cron scheduling skipped: % (is shared_preload_libraries=pg_cron set?)', SQLERRM;
 END;
 $$;
 
