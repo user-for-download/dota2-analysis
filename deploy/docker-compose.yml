@@ -4,7 +4,7 @@ x-common-env: &common-env
     APP_ENV: ${APP_ENV:-production}
     LOG_LEVEL: ${LOG_LEVEL:-info}
     OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-jaeger:4318}
-    ANALYTICS_PATCH_ID: ${ANALYTICS_PATCH_ID:-72}       # single source of truth
+    ANALYTICS_PATCH_ID: ${ANALYTICS_PATCH_ID:-72} # single source of truth
 
 x-restart: &restart
     restart: unless-stopped
@@ -37,7 +37,10 @@ services:
         networks: [infra-net]
 
     postgres:
-        image: ghcr.io/citusdata/pg_cron:pg16
+        build:
+            context: .
+            dockerfile: deploy/postgres/Dockerfile
+        image: dota2-postgres-pg16:${TAG:-latest}
         container_name: dota2-postgres
         <<: [*restart, *logging]
         profiles: [infra, ingestion, analytics, all]
@@ -279,12 +282,12 @@ configs:
 networks:
     infra-net:
         driver: bridge
-        internal: false  # postgres/redis/jaeger — needs host ports
+        internal: false # postgres/redis/jaeger — needs host ports
 
     ingestion-net:
         driver: bridge
-        internal: true   # no external ports needed
+        internal: true # no external ports needed
 
     analytics-net:
         driver: bridge
-        internal: false  # api gateway exposes :8080
+        internal: false # api gateway exposes :8080
