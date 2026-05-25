@@ -158,8 +158,9 @@ COMMENT ON FUNCTION ensure_hero_stubs(SMALLINT[]) IS
 
 CREATE OR REPLACE FUNCTION trg_ensure_hero_stub()
 RETURNS TRIGGER
-LANGUAGE plpgsql AS $$
+LANGUAGE plpgsql
 SET search_path = public
+AS $$
 BEGIN
     IF NEW.hero_id IS NOT NULL
        AND NOT EXISTS (SELECT 1 FROM heroes WHERE id = NEW.hero_id) THEN
