@@ -84,14 +84,23 @@ shell-redis: ## Open redis-cli
 	$(COMPOSE) exec redis redis-cli
 
 # ───── Publish ─────
-publish-core: ## Tag and push go-core module (run after version bump)
+DOWNSTREAM_MODS := go-ingestion go-analysis
+CORE_MODULE    := github.com/user-for-download/dota2-analysis/go-core
+
+publish-core: ## Tag and push go-core, update downstream modules, regenerate go.sum
 	@echo "=== Publishing go-dota2-core ==="
 	@read -p "Version (e.g. v1.0.0): " VERSION; \
-	cd go-core && git tag $$VERSION && git push origin $$VERSION
-	@echo "Tag pushed. Update downstream go.mod files:"
-	@echo "  cd go-ingestion && go get github.com/user-for-download/go-dota2-core@$$VERSION"
-	@echo "  cd go-analysis && go get github.com/user-for-download/go-dota2-core@$$VERSION"
-	@echo "Then remove replace directives from go.mod and run: go mod tidy"
+	cd go-core && git tag $$VERSION && git push origin $$VERSION; \
+	for mod in $(DOWNSTREAM_MODS); do \
+		echo "--- Updating $$mod ---"; \
+		cd $(CURDIR)/$$mod; \
+		sed -i '/^replace.*go-core/d' go.mod; \
+		GOWORK=off go get $(CORE_MODULE)@$$VERSION; \
+		GOWORK=off go mod tidy; \
+		cd $(CURDIR); \
+	done; \
+	echo "=== publish-core complete ==="; \
+	echo "Changes staged. Verify with: git diff --stat"
 
 # ───── Schema ─────
 new-migration: ## Create a new schema migration: make new-migration NAME=add_foo_column
