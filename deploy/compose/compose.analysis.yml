@@ -20,6 +20,7 @@
 x-common-env: &common-env
     APP_ENV: ${APP_ENV:-dev}
     LOG_LEVEL: ${LOG_LEVEL:-debug}
+    ANALYTICS_PATCH_ID: ${ANALYTICS_PATCH_ID:-72}       # single source of truth
 
 x-common: &common
     restart: unless-stopped
@@ -41,7 +42,6 @@ services:
             POSTGRES_DSN: postgresql://${POSTGRES_USER:-dota2}:${POSTGRES_PASSWORD:-dota2}@postgres:5432/${POSTGRES_DB:-dota2}
             API_TOKEN: ${API_TOKEN:-changeme}
             API_BIND: 0.0.0.0:8080
-            ANALYTICS_PATCH_ID: ${ANALYTICS_PATCH_ID:-72}
             ANALYTICS_SCORER_KIND: ${ANALYTICS_SCORER_KIND:-linear}
             ANALYTICS_MODEL_DIR: /models/imitation/current
             ANALYTICS_VALUE_MODEL_DIR: /models/value/current
@@ -63,7 +63,6 @@ services:
         environment:
             <<: *common-env
             POSTGRES_DSN: postgresql://${POSTGRES_USER:-dota2}:${POSTGRES_PASSWORD:-dota2}@postgres:5432/${POSTGRES_DB:-dota2}
-            ANALYTICS_PATCH_ID: ${ANALYTICS_PATCH_ID:-72}
             ANALYTICS_FEATURIZER_INTERVAL: ${ANALYTICS_FEATURIZER_INTERVAL:-24h}
         #    depends_on:
         #      postgres:
@@ -79,7 +78,6 @@ services:
         environment:
             <<: *common-env
             POSTGRES_DSN: postgresql://${POSTGRES_USER:-dota2}:${POSTGRES_PASSWORD:-dota2}@postgres:5432/${POSTGRES_DB:-dota2}
-            ANALYTICS_PATCH_ID: ${ANALYTICS_PATCH_ID:-72}
             ANALYTICS_SCORER_KIND: ${ANALYTICS_SCORER_KIND:-linear}
             ANALYTICS_MODEL_DIR: /models/imitation/current
             BACKTEST_PATCH_ID: ${BACKTEST_PATCH_ID:-}
