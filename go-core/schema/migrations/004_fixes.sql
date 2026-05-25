@@ -17,26 +17,54 @@ CREATE EXTENSION IF NOT EXISTS pg_cron;
 -- Schedule analytics MV refreshes daily at 2 AM UTC.
 -- REFRESH CONCURRENTLY allows reads during refresh.
 -- Each MV is independent (no cross-MV dependencies).
-SELECT cron.schedule(
-    'refresh-mv-team-hero-profile', '0 2 * * *',
-    'REFRESH MATERIALIZED VIEW CONCURRENTLY analytics.mv_team_hero_profile'
-);
-SELECT cron.schedule(
-    'refresh-mv-hero-synergy', '0 2 * * *',
-    'REFRESH MATERIALIZED VIEW CONCURRENTLY analytics.mv_hero_synergy'
-);
-SELECT cron.schedule(
-    'refresh-mv-hero-counter', '0 2 * * *',
-    'REFRESH MATERIALIZED VIEW CONCURRENTLY analytics.mv_hero_counter'
-);
-SELECT cron.schedule(
-    'refresh-mv-player-team-history', '0 2 * * *',
-    'REFRESH MATERIALIZED VIEW CONCURRENTLY analytics.mv_player_team_history'
-);
-SELECT cron.schedule(
-    'refresh-mv-player-hero-profile', '0 2 * * *',
-    'REFRESH MATERIALIZED VIEW CONCURRENTLY analytics.mv_player_hero_profile'
-);
+--
+-- Wrapped in DO block so that if pg_cron background worker is not running
+-- (e.g., shared_preload_libraries misconfiguration), the migration still
+-- succeeds. The cron.schedule documentation explains the prerequisite.
+DO $$
+BEGIN
+    PERFORM cron.schedule(
+        'refresh-mv-team-hero-profile', '0 2 * * *',
+        'REFRESH MATERIALIZED VIEW CONCURRENTLY analytics.mv_team_hero_profile'
+    );
+    PERFORM cron.schedule(
+        'refresh-mv-hero-synergy', '0 2 * * *',
+        'REFRESH MATERIALIZED VIEW CONCURRENTLY analytics.mv_hero_synergy'
+    );
+    PERFORM cron.schedule(
+        'refresh-mv-hero-counter', '0 2 * * *',
+        'REFRESH MATERIALIZED VIEW CONCURRENTLY analytics.mv_hero_counter'
+    );
+    PERFORM cron.schedule(
+        'refresh-mv-player-team-history', '0 2 * * *',
+        'REFRESH MATERIALIZED VIEW CONCURRENTLY analytics.mv_player_team_history'
+    );
+    PERFORM cron.schedule(
+        'refresh-mv-player-hero-profile', '0 2 * * *',
+        'REFRESH MATERIALIZED VIEW CONCURRENTLY analytics.mv_player_hero_profile'
+    );
+EXCEPTION WHEN OTHERS THEN
+    RAISE WARNING 'pg_cron scheduling skipped: % (is shared_preload_libraries=pg_cron set?)', SQLERRM;
+END;
+$$;
+
+-- Schedule weekly partition maintenance (Sundays at 1 AM UTC).
+-- Creates time-range partitions 8 quarters (2 years) ahead
+-- so data never leaks into default partitions.
+DO $$
+BEGIN
+    PERFORM cron.schedule(
+        'maintain-time-partitions', '0 1 * * 0',
+        'SELECT ensure_future_time_partitions(ARRAY[''matches'',''player_matches'',''public_matches'',''player_timeseries''], 8)'
+    );
+    PERFORM cron.schedule(
+        'drop-old-partitions', '0 3 * * 0',
+        'SELECT drop_old_time_partitions(ARRAY[''matches'',''player_matches'',''public_matches'',''player_timeseries''], 2)'
+    );
+EXCEPTION WHEN OTHERS THEN
+    RAISE WARNING 'pg_cron partition scheduling skipped: % (is shared_preload_libraries=pg_cron set?)', SQLERRM;
+END;
+$$;
 
 -- =====================================================
 -- Partition Retention
@@ -152,6 +180,21 @@ CREATE INDEX IF NOT EXISTS idx_matches_radiant_dire_win
     ON matches(radiant_team_id, dire_team_id, start_time DESC)
     INCLUDE (radiant_win)
     WHERE radiant_team_id IS NOT NULL AND dire_team_id IS NOT NULL;
+
+-- =====================================================
+-- Hash Partition Indexing Note
+--
+-- Hash-partitioned tables (player_match_details(32), match_advantages(8),
+-- match_cosmetics(8), picks_bans(16), draft_timings(16)) rely on the
+-- primary-key index on match_id that PostgreSQL creates automatically on
+-- every partition. Point lookups by match_id are efficient.
+--
+-- No secondary local indexes are added because the current query patterns
+-- against these tables are exclusively match_id lookups. If new analytics
+-- queries need to filter on other columns (e.g., hero_id across all
+-- partitions), add local indexes on the parent table and PostgreSQL will
+-- propagate them to each partition automatically.
+-- =====================================================
 
 -- =====================================================
 -- Record Migration

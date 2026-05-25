@@ -27,6 +27,9 @@ COMMENT ON SCHEMA analytics IS
     'Derived analytics data for draft analysis. Read-side only — no writes to public.*';
 
 -- ----- Drop existing objects (idempotent re-run) ---------------------
+-- WARNING: CASCADE drops any views, functions, or other objects that
+-- depend on these MVs. Ensure no downstream objects reference them
+-- directly, or re-create those objects after migration.
 DROP MATERIALIZED VIEW IF EXISTS analytics.mv_player_hero_profile    CASCADE;
 DROP MATERIALIZED VIEW IF EXISTS analytics.mv_player_team_history    CASCADE;
 DROP MATERIALIZED VIEW IF EXISTS analytics.mv_hero_counter           CASCADE;
@@ -227,6 +230,17 @@ WITH NO DATA;
 
 CREATE UNIQUE INDEX uq_mv_player_hero_profile
     ON analytics.mv_player_hero_profile (account_id, hero_id);
+
+-- ----- Populate MVs with existing data -------------------------------
+-- Standard REFRESH (not CONCURRENTLY) is safe here because:
+--   - The migration holds exclusive schema lock
+--   - No application reads are active during migration
+--   - On first run the MVs are empty (no-op); on re-runs this re-pouplates
+REFRESH MATERIALIZED VIEW analytics.mv_team_hero_profile;
+REFRESH MATERIALIZED VIEW analytics.mv_hero_synergy;
+REFRESH MATERIALIZED VIEW analytics.mv_hero_counter;
+REFRESH MATERIALIZED VIEW analytics.mv_player_team_history;
+REFRESH MATERIALIZED VIEW analytics.mv_player_hero_profile;
 
 -- =====================================================================
 -- 6. feature_snapshots_player_hero

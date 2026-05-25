@@ -122,7 +122,6 @@ ON CONFLICT (id) DO NOTHING;
 COMMENT ON TABLE heroes IS 'Populated by enricher from /heroes; id=0 is a stub for empty draft slots.';
 
 -- =====================================================
--- Hero FK stub safety net (consolidated from 002_fix_hero_fk_stubs.sql)
 -- Prevents FK violations when parser ingests matches
 -- referencing heroes not yet loaded by the enricher.
 -- =====================================================
@@ -1214,7 +1213,6 @@ END $$;
 
 -- =====================================================
 -- Attach hero-stub safety-net triggers to FK-bound tables
--- (consolidated from 002_fix_hero_fk_stubs.sql)
 -- =====================================================
 DO $$
 DECLARE
