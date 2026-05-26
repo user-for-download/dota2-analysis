@@ -8,7 +8,7 @@ The following packages are considered public and stable:
 
 | Package | Purpose |
 |---------|---------|
-| `domain` | Typed IDs (`HeroID`, `MatchID`, `TeamID`, etc.) |
+| `domain` | Typed IDs (`HeroID`, `MatchID`, `TeamID`, etc.) and the unified `Match` model |
 | `bootstrap` | Postgres pool, logger, OTel telemetry init |
 | `config` | Shared config structs (Postgres, telemetry) |
 | `migrator` | Schema migration runner |
@@ -16,6 +16,10 @@ The following packages are considered public and stable:
 | `contracttest` | Schema invariant and boundary tests |
 
 Packages not listed here are module-private and may change without notice.
+
+## Single Source of Truth
+
+`domain.Match` is the single source of truth for match data across both the ingestion and analytics pipelines. Downstream modules must not define their own duplicate match structs.
 
 ## Typed IDs Policy
 

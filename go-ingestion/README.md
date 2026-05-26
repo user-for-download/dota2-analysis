@@ -11,13 +11,14 @@ caches) and Postgres (durable storage).
 - **Smart proxy pool** — ranked, leased, rate-limited; HTTP / HTTPS /
   SOCKS5 supported; atomic operations via embedded Redis Lua scripts
 - **Resilient queues** — Redis Streams with consumer groups, retry
-  with backoff + jitter, and dead-letter streams
-- **Idempotent ingestion** — payload TTLs + dedup set + DB uniqueness
+  with backoff + jitter, and dead-letter streams. Payloads are opaque `[]byte` (no JSON introspection).
+- **Idempotent ingestion** — payload TTLs + dedup set + DB uniqueness. Redis dedup is updated only *after* successful DB commit to prevent data loss.
+- **Single Source of Truth** — `domain.Match` (from `go-core`) is the unified model across the pipeline.
 - **Pluggable storage** — ports/adapters layout; in-memory adapters
   ship for tests
 - **Observability** — OpenTelemetry (traces + metrics) via OTLP,
-  W3C trace context propagation through Redis Streams,
- Jaeger UI at http://localhost:16686
+  W3C trace context propagation through Redis Streams via middleware decorators,
+  Jaeger UI at http://localhost:16686
 
 For the design rationale and component-level details, see
 [ARCHITECTURE.md](ARCHITECTURE.md).

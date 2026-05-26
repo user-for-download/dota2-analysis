@@ -13,7 +13,7 @@
 
 ## What Belongs in go-core
 
-- **Domain types** shared between ingestion and analytics (hero IDs, match IDs, etc.)
+- **Domain types** shared between ingestion and analytics (hero IDs, match IDs, the unified `Match` model, etc.)
 - **Bootstrap infrastructure** — Postgres, logger, telemetry
 - **Schema migrations** — all SQL migrations
 - **Migration runner** — the `migrator.Run` function

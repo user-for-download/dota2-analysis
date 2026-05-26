@@ -4,8 +4,8 @@ This workspace contains three Go modules that form a Dota 2 data pipeline:
 
 ```
 dota2-analysis/
-├── go-core/          ← Shared module: domain types, bootstrap, schema migrations, migrator
-├── go-analysis/      ← Analytics pipeline (features, models, draft recommendations)
+├── go-core/          ← Shared module: domain types (Match, HeroID), bootstrap, schema migrations
+├── go-analysis/      ← Analytics pipeline (17 features, LambdaMART models, draft recommendations)
 ├── go-ingestion/     ← Data ingestion pipeline (fetches matches, parses, enriches)
 ├── deploy/           ← docker-bake.hcl + docker-compose.yml (canonical orchestration)
 ├── Makefile          ← Unified build/run/test targets
@@ -25,6 +25,15 @@ discoverer → fetcher → parser   featurizer → API
 ```
 
 Both communicate through Postgres — the schema is managed by `go-core/schema/migrations/`.
+`domain.Match` (in `go-core`) serves as the single source of truth for match data across both pipelines.
+
+## Key Technical Highlights
+
+- **Decentralized Config**: Each binary owns its exact configuration boundaries via domain-specific `LoadConfig()` functions. No global god-objects.
+- **Pure Queues**: Redis Streams with consumer groups. Payloads are opaque `[]byte` — no JSON introspection or `_retry` hacks. Retry counts are stored as native stream fields.
+- **End-to-End Tracing**: OpenTelemetry (OTel) trace context is preserved across the entire pipeline (Fetcher → Redis Queue → Parser → Ingester) via middleware decorators.
+- **Decoupled ML Inference**: The Go API server is decoupled from LightGBM via a `ModelReloader` interface. The `ModelWatcher` handles SIGHUP hot-reloads atomically.
+- **Per-Candidate Ranking**: The LambdaMART model uses 17 features (8 MV-dependent, 9 per-candidate/draft context) and groups by `(match_id, slot)` to provide true within-decision ranking signal.
 
 ## Module Dependencies
 

@@ -586,12 +586,16 @@ Get a player's hero comfort and recent team history.
 4. **Verify model loaded**:
    ```bash
    curl -H "Authorization: Bearer $API_TOKEN" http://localhost:8080/v1/health
-   # Check "scorer": "lgbm" and "model_version" is populated
+   # Check "scorer": "dynamic" (or "lgbm") and "model_version" is populated
    ```
+
+### Dynamic Feature Loading
+
+The Go API uses `NewBuilderFromSpec` to dynamically load the feature specification from `spec.json`. This allows the ML team to add, remove, or reorder features (from the 17 available feature sources) without requiring a Go recompile. If `spec.json` fails to load or contains unknown features, the API gracefully falls back to the `DefaultSources` ordering.
 
 ### Hot-Reload (SIGHUP)
 
-If the API is already running with LGBM scorer, you can hot-reload the model without restarting:
+If the API is already running with LGBM scorer, you can hot-reload the model without restarting. The `ModelWatcher` listens for SIGHUP and calls the `ModelReloader` interface:
 
 ```bash
 # Copy new model files to the model directory

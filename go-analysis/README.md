@@ -77,8 +77,8 @@ go-analysis  ──requires──>  go-core (shared domain types, bootstrap, mig
 
 Two scorer backends:
 
-- **Linear**: Hand-tuned weighted sum of 8 feature sources. Default, no model files needed.
-- **LGBM**: LightGBM model loaded from `assets/models/imitation/current/`. SIGHUP hot-reload.
+- **Linear**: Hand-tuned weighted sum of 17 feature sources. Default, no model files needed.
+- **LGBM**: LightGBM LambdaMART model loaded from `assets/models/imitation/current/`. SIGHUP hot-reload via `ModelWatcher` and `ModelReloader` interface.
 
 Switch via `ANALYTICS_SCORER_KIND=linear|lgbm`.
 
@@ -96,8 +96,7 @@ trainer evaluate
 trainer publish
 ```
 
-Model artifacts are written to `assets/models/imitation/current/` and hot-reloaded
-by the API on SIGHUP.
+The training pipeline uses 17 features (8 MV-dependent, 9 per-candidate/draft context) and groups by `(match_id, slot)` to provide true within-decision ranking signal. It handles OOM mitigation (30 negatives per slot, explicit GC) and automatically publishes artifacts to `assets/models/imitation/current/` which are hot-reloaded by the API on SIGHUP.
 
 ## See Also
 
