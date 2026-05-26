@@ -26,11 +26,11 @@ func (r *PGRepository) TeamHeroes(ctx context.Context, teamID domain.TeamID, min
 	for rows.Next() {
 		var t profiles.TeamHero
 		if err := rows.Scan(&t.HeroID, &t.HeroName, &t.Games, &t.Wins, &t.WRShrunk); err != nil {
-			continue
+			return nil, fmt.Errorf("scan team heroes: %w", err)
 		}
 		out = append(out, t)
 	}
-	return out, nil
+	return out, rows.Err()
 }
 
 // TeamH2H returns head-to-head record between two teams.
@@ -70,18 +70,18 @@ func (r *PGRepository) TeamHeroStatsBatch(ctx context.Context, teamID domain.Tea
 		WHERE team_id = $1 AND hero_id = ANY($2)
 	`, teamID, heroIDsToInt16(heroes))
 	if err != nil {
-		return result, nil // missing data is OK
+		return nil, fmt.Errorf("team hero stats batch: %w", err)
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var heroID int16
 		var s profiles.TeamHeroStats
 		if err := rows.Scan(&heroID, &s.Games, &s.WRShrunk); err != nil {
-			continue
+			return nil, fmt.Errorf("scan team hero stats: %w", err)
 		}
 		result[domain.HeroID(heroID)] = s
 	}
-	return result, nil
+	return result, rows.Err()
 }
 
 // StarThreatBatch returns the opponent team's WR for each hero (min 3 games).
@@ -99,16 +99,16 @@ func (r *PGRepository) StarThreatBatch(ctx context.Context, themTeamID domain.Te
 		WHERE team_id = $1 AND hero_id = ANY($2) AND games >= $3
 	`, themTeamID, heroIDsToInt16(heroes), minGames)
 	if err != nil {
-		return out, nil // missing data is OK
+		return nil, fmt.Errorf("star threat batch: %w", err)
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var heroID int16
 		var wr float64
 		if err := rows.Scan(&heroID, &wr); err != nil {
-			continue
+			return nil, fmt.Errorf("scan star threat: %w", err)
 		}
 		out[domain.HeroID(heroID)] = wr
 	}
-	return out, nil
+	return out, rows.Err()
 }

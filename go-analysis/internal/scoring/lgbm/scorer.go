@@ -48,7 +48,7 @@ func (s *Scorer) Score(_ context.Context, vectors []*domain.FeatureVector) ([]do
 
 	// Batch predict using PredictDense for efficient multi-row inference
 	predictions := make([]float64, n)
-	if err := s.ens.PredictDense(flat, n, nFeat, predictions, 0, 1); err != nil {
+	if err := s.ens.PredictDense(flat, n, nFeat, predictions, 0, 0); err != nil {
 		return nil, fmt.Errorf("lightgbm predict: %w", err)
 	}
 

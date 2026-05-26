@@ -21,7 +21,7 @@ func SnapshotPlayerHero(ctx context.Context, db *pgxpool.Pool, now time.Time) er
 		games,
 		wins,
 		shrunk_wr,
-		(SELECT MAX(patch_id) - 2 FROM public.matches),
+		(SELECT MAX(patch_id) - 2 FROM public.matches),  -- -2: pad to exclude current + most-recent patch (still settling)
 		(SELECT MAX(patch_id) FROM public.matches)
 	FROM analytics.mv_player_hero_profile
 	WHERE games >= 1

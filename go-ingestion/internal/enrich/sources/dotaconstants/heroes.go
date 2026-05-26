@@ -25,7 +25,7 @@ func NewHeroesSource(baseURL string, w enrich.HeroesWriter, httpClient ...enrich
 }
 
 func (s *HeroesSource) Name() string        { return "dotaconstants:heroes" }
-func (s *HeroesSource) Critical() bool     { return true }
+func (s *HeroesSource) Critical() bool      { return true }
 func (s *HeroesSource) DependsOn() []string { return nil }
 
 func (s *HeroesSource) Run(ctx context.Context, deps enrich.Deps) error {

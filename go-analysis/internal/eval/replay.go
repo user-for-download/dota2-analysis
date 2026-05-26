@@ -3,6 +3,7 @@ package eval
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"sort"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -52,7 +53,7 @@ func Replay(
 	if err != nil {
 		// Roster data is optional — continue without it.
 		// Log the failure so operator knows player-comfort baselines will be degraded.
-		fmt.Printf("warn: roster query failed (player comfort disabled): %v\n", err)
+		slog.Default().Warn("roster query failed; player comfort disabled", "err", err)
 		rosterRows = nil
 	}
 	if rosterRows != nil {
@@ -60,22 +61,22 @@ func Replay(
 		for rosterRows.Next() {
 			var matchID int64
 			var isRadiant bool
-		// Use *int64 to handle NULL account_ids (anonymous players).
-		var accountPtrs []*int64
-		if err := rosterRows.Scan(&matchID, &isRadiant, &accountPtrs); err != nil {
-			continue
-		}
-		sr, ok := rosters[matchID]
-		if !ok {
-			sr = &sideRoster{}
-			rosters[matchID] = sr
-		}
-		ids := make([]domain.AccountID, 0, len(accountPtrs))
-		for _, ptr := range accountPtrs {
-			if ptr != nil {
-				ids = append(ids, domain.AccountID(*ptr))
+			// Use *int64 to handle NULL account_ids (anonymous players).
+			var accountPtrs []*int64
+			if err := rosterRows.Scan(&matchID, &isRadiant, &accountPtrs); err != nil {
+				continue
 			}
-		}
+			sr, ok := rosters[matchID]
+			if !ok {
+				sr = &sideRoster{}
+				rosters[matchID] = sr
+			}
+			ids := make([]domain.AccountID, 0, len(accountPtrs))
+			for _, ptr := range accountPtrs {
+				if ptr != nil {
+					ids = append(ids, domain.AccountID(*ptr))
+				}
+			}
 			if isRadiant {
 				sr.radiant = ids
 			} else {
@@ -132,13 +133,13 @@ func Replay(
 
 	for rows.Next() {
 		var (
-			matchID     int64
-			ord         int16
-			isPick      bool
-			heroID      int16
-			team        int16
-			rTeamID     int64
-			dTeamID     int64
+			matchID int64
+			ord     int16
+			isPick  bool
+			heroID  int16
+			team    int16
+			rTeamID int64
+			dTeamID int64
 		)
 		if err := rows.Scan(&matchID, &ord, &isPick, &heroID, &team, &rTeamID, &dTeamID); err != nil {
 			return nil, fmt.Errorf("scan row: %w", err)
@@ -146,14 +147,14 @@ func Replay(
 
 		// New match boundary.
 		if matchID != currentMatchID {
-			if cfg.Limit > 0 && matchCount >= cfg.Limit {
-				break
-			}
+			currentMatchID = matchID
 			if !processedMatches[matchID] {
 				processedMatches[matchID] = true
 				matchCount++
 			}
-			currentMatchID = matchID
+			if cfg.Limit > 0 && matchCount > cfg.Limit {
+				break
+			}
 			radiantTeamID = rTeamID
 			direTeamID = dTeamID
 			radiantPicks = nil

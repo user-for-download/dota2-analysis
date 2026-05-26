@@ -17,7 +17,7 @@ func NewPG(p *pgxpool.Pool) *PG {
 
 var _ Writer = (*PG)(nil)
 
-const upsertSQL = `
+const leagueUpsertSQL = `
 INSERT INTO leagues (leagueid, name, tier, ticket, banner, updated_at)
 VALUES ($1, $2, $3, $4, $5, now())
 ON CONFLICT (leagueid) DO UPDATE
@@ -40,7 +40,7 @@ func (r *PG) Upsert(ctx context.Context, leagues []League) (int, error) {
 
 	var n int
 	for _, l := range leagues {
-		if _, err := tx.Exec(ctx, upsertSQL,
+		if _, err := tx.Exec(ctx, leagueUpsertSQL,
 			l.LeagueID, l.Name, l.Tier, l.Ticket, l.Banner,
 		); err != nil {
 			return n, fmt.Errorf("upsert league %d: %w", l.LeagueID, err)

@@ -37,7 +37,7 @@ var cmPhaseTableData = []Phase{
 	{Name: "pick_4", IsBan: false, ActingTeam: DraftRadiant},  // 13
 	{Name: "pick_3", IsBan: false, ActingTeam: DraftDire},     // 14
 	{Name: "pick_4", IsBan: false, ActingTeam: DraftDire},     // 15
-	{Name: "pick_4", IsBan: false, ActingTeam: DraftRadiant},  // 16
+	{Name: "pick_5", IsBan: false, ActingTeam: DraftRadiant},  // 16
 	{Name: "ban_5", IsBan: true, ActingTeam: DraftDire},       // 17
 	{Name: "ban_5", IsBan: true, ActingTeam: DraftRadiant},    // 18
 	{Name: "pick_5", IsBan: false, ActingTeam: DraftDire},     // 19

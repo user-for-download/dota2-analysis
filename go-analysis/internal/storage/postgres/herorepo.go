@@ -32,11 +32,11 @@ func (r *PGRepository) HeroSynergies(ctx context.Context, heroID domain.HeroID, 
 	for rows.Next() {
 		var p profiles.HeroPair
 		if err := rows.Scan(&p.HeroID, &p.HeroName, &p.Games, &p.Wins, &p.WRShrunk); err != nil {
-			continue
+			return nil, fmt.Errorf("scan hero synergies: %w", err)
 		}
 		out = append(out, p)
 	}
-	return out, nil
+	return out, rows.Err()
 }
 
 // HeroCounters returns heroes that counter a given hero.
@@ -57,11 +57,11 @@ func (r *PGRepository) HeroCounters(ctx context.Context, heroID domain.HeroID, m
 	for rows.Next() {
 		var p profiles.HeroPair
 		if err := rows.Scan(&p.HeroID, &p.HeroName, &p.Games, &p.Wins, &p.WRShrunk); err != nil {
-			continue
+			return nil, fmt.Errorf("scan hero counters: %w", err)
 		}
 		out = append(out, p)
 	}
-	return out, nil
+	return out, rows.Err()
 }
 
 // SynergyAvgBatch returns average synergy WR between ally picks and candidates.
@@ -93,11 +93,11 @@ func (r *PGRepository) SynergyAvgBatch(ctx context.Context, allies, candidates [
 		var heroID int16
 		var avg float64
 		if err := rows.Scan(&heroID, &avg); err != nil {
-			continue
+			return nil, fmt.Errorf("scan synergy avg: %w", err)
 		}
 		out[domain.HeroID(heroID)] = avg
 	}
-	return out, nil
+	return out, rows.Err()
 }
 
 // CounterAvgBatch returns average counter WR of candidates against enemies.
@@ -123,9 +123,9 @@ func (r *PGRepository) CounterAvgBatch(ctx context.Context, candidates, enemies 
 		var heroID int16
 		var avg float64
 		if err := rows.Scan(&heroID, &avg); err != nil {
-			continue
+			return nil, fmt.Errorf("scan counter avg: %w", err)
 		}
 		out[domain.HeroID(heroID)] = avg
 	}
-	return out, nil
+	return out, rows.Err()
 }

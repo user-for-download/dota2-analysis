@@ -17,7 +17,7 @@ func NewPG(p *pgxpool.Pool) *PG {
 
 var _ Writer = (*PG)(nil)
 
-const upsertSQL = `
+const heroStatUpsertSQL = `
 INSERT INTO hero_stats (
     id, base_health, base_mana, base_armor, base_mr,
     base_attack_min, base_attack_max, base_str, base_agi, base_int,
@@ -87,7 +87,7 @@ func (r *PG) Upsert(ctx context.Context, stats []HeroStat) (int, error) {
 			return n, fmt.Errorf("hero stub check failed: %w", err)
 		}
 
-		if _, err := tx.Exec(ctx, upsertSQL,
+		if _, err := tx.Exec(ctx, heroStatUpsertSQL,
 			s.ID, s.BaseHealth, s.BaseMana, s.BaseArmor, s.BaseMR,
 			s.BaseAttackMin, s.BaseAttackMax, s.BaseStr, s.BaseAgi, s.BaseInt,
 			s.StrGain, s.AgiGain, s.IntGain, s.AttackRange, s.ProjectileSpeed,
