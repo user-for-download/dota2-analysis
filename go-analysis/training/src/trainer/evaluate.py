@@ -41,6 +41,11 @@ def run(settings: Settings):
     X = decisions[feature_cols].values.astype(float)
     predictions = booster.predict(X)
 
+    # Free memory
+    del X
+    import gc
+    gc.collect()
+
     for (match_id, slot), group in decisions.groupby(["match_id", "slot"], sort=False):
         preds = predictions[group.index]
 

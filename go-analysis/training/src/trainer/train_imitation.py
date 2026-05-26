@@ -83,6 +83,13 @@ def run(settings: Settings):
     y_val = val_df["label"].values
     groups_val = val_df.groupby(["match_id", "slot"], sort=False).size().values
 
+    # Free memory
+    import gc
+    del train_df
+    del val_df
+    del candidates
+    gc.collect()
+
     train_data = lgb.Dataset(X_train, label=y_train, group=groups_train)
     val_data = lgb.Dataset(X_val, label=y_val, group=groups_val, reference=train_data)
 
