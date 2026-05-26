@@ -139,8 +139,16 @@ func main() {
 
 	recommender := recommend.NewService(builder, scorer, explainer, catalog)
 
-	watcher := api.NewModelWatcher(lgbmScvr, log)
-	go watcher.Watch(ctx)
+	// Guard: lgbmScvr may be nil (LGBM load failed, falling back to linear).
+	// A nil *ReloadableScorer typed to ModelReloader is NOT a nil interface
+	// in Go — the interface holds (type, nil) and w.reloader != nil would
+	// pass, causing a nil-pointer panic on the first SIGHUP at r.ptr.Load().
+	if lgbmScvr != nil {
+		watcher := api.NewModelWatcher(lgbmScvr, log)
+		go watcher.Watch(ctx)
+	} else {
+		log.Info("skipping model watcher (no LGBM scorer)")
+	}
 
 	srv := api.NewServer(cfg.API, cfg.Analytics, repo, recommender, catalog, lgbmScvr, log)
 	if err := srv.Run(ctx); err != nil {
