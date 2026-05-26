@@ -586,38 +586,49 @@ def _features_star_threat(
 # ── MV-independent features (computed from decisions.parquet, no DB needed) ──
 
 
-def _features_hero_global_rates(
+def _features_historical_hero_wr(
     candidates: pd.DataFrame, raw_decisions: pd.DataFrame
 ) -> pd.DataFrame:
-    """Features 8-9: hero_global_wr, hero_pick_rate.
+    """Feature 8: hero_historical_wr.
 
-    Computed directly from the original decisions (not the candidates).
-    Shrunk WR uses prior=20 for stronger shrinkage with limited data.
+    Hero win rate computed from PREVIOUS PATCHES only — never from the
+    current patch's data.  This prevents label leakage: the model cannot
+    cheat by reading "how often was this hero the answer" from the same
+    matches it's trying to predict.
+
+    Falls back to 0.5 when no historical data exists (cold start).
     """
-    n_matches = raw_decisions["match_id"].nunique()
-    picks = raw_decisions[raw_decisions["is_pick"] == True]
+    current_patch = raw_decisions["patch_id"].max()
+    historical = raw_decisions[raw_decisions["patch_id"] < current_patch]
 
+    if historical.empty:
+        result = candidates.copy()
+        result["hero_historical_wr"] = 0.5
+        return result
+
+    picks = historical[historical["is_pick"] == True]
     hero_stats = (
         picks.groupby("hero_id")
-        .agg(hero_global_games=("match_id", "count"), hero_global_wins=("acting_won", "sum"))
+        .agg(wins=("acting_won", "sum"), games=("acting_won", "count"))
         .reset_index()
     )
-    hero_stats["hero_global_wr"] = (
-        (hero_stats["hero_global_wins"] + 20.0) / (hero_stats["hero_global_games"] + 40.0)
+    hero_stats["hero_historical_wr"] = (
+        (hero_stats["wins"] + 10.0) / (hero_stats["games"] + 20.0)
     )
-    hero_stats["hero_pick_rate"] = hero_stats["hero_global_games"] / n_matches
-    hero_stats.drop(columns=["hero_global_games", "hero_global_wins"], inplace=True)
 
-    result = candidates.merge(hero_stats, on="hero_id", how="left")
-    result["hero_global_wr"] = result["hero_global_wr"].fillna(0.5)
-    result["hero_pick_rate"] = result["hero_pick_rate"].fillna(0.0)
+    result = candidates.merge(
+        hero_stats[["hero_id", "hero_historical_wr"]],
+        on="hero_id",
+        how="left",
+    )
+    result["hero_historical_wr"] = result["hero_historical_wr"].fillna(0.5)
     return result
 
 
 def _features_draft(candidates: pd.DataFrame) -> pd.DataFrame:
-    """Features 10-11: draft_slot_norm, is_pick_phase.
+    """Features 9-10: draft_slot_norm, is_pick_phase.
 
-    Draft position and pick-vs-ban phase — no DB needed.
+    Draft position and pick-vs-ban phase — no DB needed, no label leakage.
     """
     result = candidates.copy()
     result["draft_slot_norm"] = result["slot"] / 30.0  # normalize to ~[0, 1]
@@ -629,15 +640,15 @@ def _features_draft(candidates: pd.DataFrame) -> pd.DataFrame:
 def compute_features(
     candidates: pd.DataFrame, settings: Settings, raw_decisions: pd.DataFrame
 ) -> pd.DataFrame:
-    """Compute the 12-feature vector for each candidate row.
+    """Compute the feature vector for each candidate row.
 
     Each candidate row represents a (match, suggested hero) pair.
     Positive samples (label=1.0) are actual picks; negative samples
     (label=0.0) are undrafted heroes.
 
     Features 0-7 may use MV defaults when analytics tables are empty.
-    Features 8-11 are computed directly from the raw decisions and
-    are always available.
+    Features 8-10 are computed directly from the raw decisions and
+    are always available (no label leakage — uses previous-patch WR).
 
     Feature order must match FEATURE_SPEC_VERSION in feature_specs.py.
     """
@@ -672,8 +683,8 @@ def compute_features(
     result = _features_player_comfort(result, mvs, engine)
     result = _features_star_threat(result, mvs, engine)
 
-    # MV-independent features (always available)
-    result = _features_hero_global_rates(result, raw_decisions)
+    # MV-independent features (always available, no label leakage)
+    result = _features_historical_hero_wr(result, raw_decisions)
     result = _features_draft(result)
 
     return result

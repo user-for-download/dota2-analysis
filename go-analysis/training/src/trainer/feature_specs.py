@@ -16,8 +16,9 @@ FEATURES = [
     {"name": "player_comfort", "dtype": "f32", "source_hash": "player_comfort: wr_shrunk FROM mv_player_hero_profile WHERE account_id=? AND hero_id=?"},
     {"name": "star_threat", "dtype": "f32", "source_hash": "star_threat: opponent signature hero threat level"},
     # MV-independent features (always available from decisions.parquet)
-    {"name": "hero_global_wr", "dtype": "f32", "source_hash": "hero_global_wr: shrunk WR from training decisions per hero"},
-    {"name": "hero_pick_rate", "dtype": "f32", "source_hash": "hero_pick_rate: pick frequency from training decisions"},
+    # NOTE: hero_historical_wr is computed from PREVIOUS patches only;
+    #       it must NOT use the same matches the model is predicting.
+    {"name": "hero_historical_wr", "dtype": "f32", "source_hash": "hero_historical_wr: shrunk WR from previous patch(es) to avoid label leakage"},
     {"name": "draft_slot_norm", "dtype": "f32", "source_hash": "draft_slot_norm: slot/max_slot normalized to [0,1]"},
     {"name": "is_pick_phase", "dtype": "f32", "source_hash": "is_pick_phase: 1.0 for picks, 0.0 for bans"},
 ]
