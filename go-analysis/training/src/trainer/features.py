@@ -15,9 +15,11 @@ def _refresh_mvs(engine):
         "mv_player_team_history",
         "mv_player_hero_profile",
     ]
-    for mv in mvs:
-        print(f"  Refreshing analytics.{mv}...")
-        engine.execute(text(f"REFRESH MATERIALIZED VIEW analytics.{mv}"))
+    with engine.connect() as conn:
+        for mv in mvs:
+            print(f"  Refreshing analytics.{mv}...")
+            conn.execute(text(f"REFRESH MATERIALIZED VIEW analytics.{mv}"))
+        conn.commit()
 
 
 def _load_mvs(engine) -> dict[str, pd.DataFrame]:
@@ -367,6 +369,11 @@ def compute_features(candidates: pd.DataFrame, settings: Settings) -> pd.DataFra
     _refresh_mvs(engine)
 
     mvs = _load_mvs(engine)
+
+    # Warn about empty MVs — features relying on them will default to 0.5/0.
+    for key, df in mvs.items():
+        if df.empty:
+            print(f"  WARNING: analytics.{key} is empty — some features will use defaults")
 
     result = candidates.copy()
 
