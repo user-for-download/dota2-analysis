@@ -10,12 +10,15 @@ from trainer.config import Settings
 def run(settings: Settings):
     """Evaluate the imitation model.
 
-    Computes Recall@K per match: for each match, checks whether the
-    actually chosen hero (label=1.0) appears in the model's top-K predictions.
-    Negative samples (label=0.0 from candidate generation) are excluded from
-    the relevance check but included in the ranking pool.
+    Computes Recall@5 per match: checks whether the actually chosen
+    hero (label=1.0) appears in the model's top 5 predicted heroes
+    out of all available candidates.
     """
-    decisions = pd.read_parquet(settings.artifact_dir / "decisions.parquet")
+    cand_path = settings.artifact_dir / "candidates.parquet"
+    if not cand_path.exists():
+        raise FileNotFoundError(f"{cand_path} not found. Run training first.")
+
+    decisions = pd.read_parquet(cand_path)
 
     model_path = settings.artifact_dir / "imitation" / "model.bin"
     booster = lgb.Booster(model_file=str(model_path))
@@ -23,13 +26,23 @@ def run(settings: Settings):
     X = decisions[["hero_id"]].values.astype(float)
     predictions = booster.predict(X)
 
-    # Compute Recall@5 per match — only positive samples are "chosen"
+    # Compute Recall@5 per match
     recall_at_5 = []
     for match_id, group in decisions.groupby("match_id"):
         preds = predictions[group.index]
-        chosen = group.loc[group["label"] == 1.0, "hero_id"].values
-        top5 = group.iloc[np.argsort(preds)[-5:]]["hero_id"].values
-        hit = any(h in top5 for h in chosen) if len(chosen) > 0 else False
+
+        # Find the one hero that was actually chosen (label=1.0)
+        chosen_heroes = group.loc[group["label"] == 1.0, "hero_id"].values
+        if len(chosen_heroes) == 0:
+            continue  # Skip if no positive label exists
+        chosen_hero = chosen_heroes[0]
+
+        # Get top 5 predicted heroes from the candidates
+        top5_idx = np.argsort(preds)[-5:]
+        top5_heroes = group.iloc[top5_idx]["hero_id"].values
+
+        # Check if the chosen hero is in the top 5
+        hit = chosen_hero in top5_heroes
         recall_at_5.append(int(hit))
 
     avg_recall = np.mean(recall_at_5) if recall_at_5 else 0.0

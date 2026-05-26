@@ -32,6 +32,11 @@ def run(settings: Settings):
     print("Generating candidates...")
     decisions = generate_candidates(decisions, all_heroes)
 
+    # Save candidate dataset so evaluate.py can use it.
+    cand_path = settings.artifact_dir / "candidates.parquet"
+    decisions.to_parquet(cand_path, index=False)
+    print(f"Saved {len(decisions)} candidates to {cand_path}")
+
     # Simplified: use hero_id as the only feature for now.
     # Full implementation uses the 8-feature vector from feature_specs.py.
 
