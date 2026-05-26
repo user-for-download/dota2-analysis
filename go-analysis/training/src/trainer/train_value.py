@@ -27,10 +27,23 @@ def run(settings: Settings):
 
     # Build feature matrix from the canonical feature spec
     feature_cols = [f["name"] for f in FEATURES]
-    X = decisions[feature_cols].values
-    y = decisions["acting_won"].astype(int).values
 
-    train_data = lgb.Dataset(X, label=y, feature_name=feature_cols)
+    # Split by match_id (rows within a match are correlated).
+    match_ids = decisions["match_id"].unique()
+    np.random.seed(42)
+    np.random.shuffle(match_ids)
+    split_idx = int(len(match_ids) * 0.8)
+
+    train_df = decisions[decisions["match_id"].isin(match_ids[:split_idx])]
+    val_df = decisions[decisions["match_id"].isin(match_ids[split_idx:])]
+
+    X_train = train_df[feature_cols].values
+    y_train = train_df["acting_won"].astype(int).values
+    X_val = val_df[feature_cols].values
+    y_val = val_df["acting_won"].astype(int).values
+
+    train_data = lgb.Dataset(X_train, label=y_train, feature_name=feature_cols)
+    val_data = lgb.Dataset(X_val, label=y_val, feature_name=feature_cols, reference=train_data)
 
     params = {
         "objective": "binary",
@@ -43,7 +56,7 @@ def run(settings: Settings):
     }
 
     booster = lgb.train(
-        params, train_data, valid_sets=[train_data],
+        params, train_data, valid_sets=[val_data],
         callbacks=[lgb.early_stopping(settings.early_stopping_rounds)],
     )
 

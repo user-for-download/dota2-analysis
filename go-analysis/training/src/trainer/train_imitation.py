@@ -27,13 +27,26 @@ def run(settings: Settings):
 
     # Simplified: use hero_id as the only feature for now.
     # Full implementation uses the 8-feature vector from feature_specs.py.
-    X = decisions[["hero_id"]].values.astype(float)
-    y = decisions["label"].values
 
-    # Group by match_id for lambdarank — each match is one ranking problem.
-    groups = decisions.groupby("match_id").size().values
+    # Split by match_id (critical for ranking: never split inside a match).
+    match_ids = decisions["match_id"].unique()
+    np.random.seed(42)
+    np.random.shuffle(match_ids)
+    split_idx = int(len(match_ids) * 0.8)
 
-    train_data = lgb.Dataset(X, label=y, group=groups)
+    train_df = decisions[decisions["match_id"].isin(match_ids[:split_idx])]
+    val_df = decisions[decisions["match_id"].isin(match_ids[split_idx:])]
+
+    X_train = train_df[["hero_id"]].values.astype(float)
+    y_train = train_df["label"].values
+    groups_train = train_df.groupby("match_id").size().values
+
+    X_val = val_df[["hero_id"]].values.astype(float)
+    y_val = val_df["label"].values
+    groups_val = val_df.groupby("match_id").size().values
+
+    train_data = lgb.Dataset(X_train, label=y_train, group=groups_train)
+    val_data = lgb.Dataset(X_val, label=y_val, group=groups_val, reference=train_data)
 
     params = {
         "objective": "lambdarank",
@@ -48,6 +61,7 @@ def run(settings: Settings):
 
     booster = lgb.train(
         params, train_data,
+        valid_sets=[val_data],
         callbacks=[lgb.early_stopping(settings.early_stopping_rounds)],
     )
 
