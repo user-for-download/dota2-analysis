@@ -10,7 +10,7 @@ import (
 	"github.com/user-for-download/dota2-analysis/go-analysis/internal/domain"
 	"github.com/user-for-download/dota2-analysis/go-analysis/internal/profiles"
 	"github.com/user-for-download/dota2-analysis/go-analysis/internal/recommend"
-	"github.com/user-for-download/dota2-analysis/go-analysis/internal/scoring/lgbm"
+	"github.com/user-for-download/dota2-analysis/go-analysis/internal/scoring"
 )
 
 // Handler holds dependencies for HTTP handlers.
@@ -20,12 +20,12 @@ type Handler struct {
 	log         *slog.Logger
 	recommender recommend.Recommender
 	catalog     domain.HeroCatalog
-	lgbmScorer  *lgbm.ReloadableScorer // nil if using linear scorer
+	reloader    scoring.ModelReloader // nil if using linear scorer
 }
 
 // NewHandler creates a new Handler.
-func NewHandler(repo profiles.Repository, analytics config.AnalyticsConfig, recommender recommend.Recommender, catalog domain.HeroCatalog, lgbmScorer *lgbm.ReloadableScorer, log *slog.Logger) *Handler {
-	return &Handler{repo: repo, analytics: analytics, recommender: recommender, catalog: catalog, lgbmScorer: lgbmScorer, log: log}
+func NewHandler(repo profiles.Repository, analytics config.AnalyticsConfig, recommender recommend.Recommender, catalog domain.HeroCatalog, reloader scoring.ModelReloader, log *slog.Logger) *Handler {
+	return &Handler{repo: repo, analytics: analytics, recommender: recommender, catalog: catalog, reloader: reloader, log: log}
 }
 
 // HealthResponse is the JSON structure for /v1/health.
@@ -58,9 +58,9 @@ func (h *Handler) Health(w http.ResponseWriter, r *http.Request) {
 
 	scorerKind := "linear"
 	modelVersion := ""
-	if h.lgbmScorer != nil {
-		scorerKind = "lgbm"
-		modelVersion = h.lgbmScorer.Version()
+	if h.reloader != nil {
+		scorerKind = "dynamic"
+		modelVersion = h.reloader.Version()
 	}
 
 	h.writeJSON(w, HealthResponse{

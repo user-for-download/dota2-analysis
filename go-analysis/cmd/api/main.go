@@ -139,6 +139,9 @@ func main() {
 
 	recommender := recommend.NewService(builder, scorer, explainer, catalog)
 
+	watcher := api.NewModelWatcher(lgbmScvr, log)
+	go watcher.Watch(ctx)
+
 	srv := api.NewServer(cfg.API, cfg.Analytics, repo, recommender, catalog, lgbmScvr, log)
 	if err := srv.Run(ctx); err != nil {
 		log.Error("server", "err", err)

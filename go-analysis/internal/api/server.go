@@ -4,35 +4,32 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
-	"os"
-	"os/signal"
-	"syscall"
 	"time"
 
 	"github.com/user-for-download/dota2-analysis/go-analysis/internal/config"
 	"github.com/user-for-download/dota2-analysis/go-analysis/internal/domain"
 	"github.com/user-for-download/dota2-analysis/go-analysis/internal/profiles"
 	"github.com/user-for-download/dota2-analysis/go-analysis/internal/recommend"
-	"github.com/user-for-download/dota2-analysis/go-analysis/internal/scoring/lgbm"
+	"github.com/user-for-download/dota2-analysis/go-analysis/internal/scoring"
 )
 
 // Server is the HTTP API server.
 type Server struct {
-	apiCfg     config.APIConfig
-	analytics  config.AnalyticsConfig
-	handler    *Handler
-	log        *slog.Logger
-	lgbmScorer *lgbm.ReloadableScorer // nil if using linear scorer
+	apiCfg    config.APIConfig
+	analytics config.AnalyticsConfig
+	handler   *Handler
+	log       *slog.Logger
+	reloader  scoring.ModelReloader // nil if using linear scorer
 }
 
 // NewServer creates a new API server.
-func NewServer(apiCfg config.APIConfig, analytics config.AnalyticsConfig, repo profiles.Repository, recommender recommend.Recommender, catalog domain.HeroCatalog, lgbmScorer *lgbm.ReloadableScorer, log *slog.Logger) *Server {
+func NewServer(apiCfg config.APIConfig, analytics config.AnalyticsConfig, repo profiles.Repository, recommender recommend.Recommender, catalog domain.HeroCatalog, reloader scoring.ModelReloader, log *slog.Logger) *Server {
 	return &Server{
-		apiCfg:     apiCfg,
-		analytics:  analytics,
-		handler:    NewHandler(repo, analytics, recommender, catalog, lgbmScorer, log),
-		log:        log,
-		lgbmScorer: lgbmScorer,
+		apiCfg:    apiCfg,
+		analytics: analytics,
+		handler:   NewHandler(repo, analytics, recommender, catalog, reloader, log),
+		log:       log,
+		reloader:  reloader,
 	}
 }
 
@@ -64,27 +61,6 @@ func (s *Server) Run(ctx context.Context) error {
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 30 * time.Second,
 		IdleTimeout:  60 * time.Second,
-	}
-
-	// SIGHUP hot-reload for LGBM model (zero-downtime, atomic swap)
-	if s.lgbmScorer != nil {
-		sigHUP := make(chan os.Signal, 1)
-		signal.Notify(sigHUP, syscall.SIGHUP)
-		go func() {
-			defer signal.Stop(sigHUP)
-			for {
-				select {
-				case <-sigHUP:
-					if err := s.lgbmScorer.Reload(); err != nil {
-						s.log.Error("model reload failed", "err", err)
-					} else {
-						s.log.Info("model reloaded successfully", "version", s.lgbmScorer.Version())
-					}
-				case <-ctx.Done():
-					return
-				}
-			}
-		}()
 	}
 
 	errCh := make(chan error, 1)

@@ -39,14 +39,14 @@ func NewService(builder features.Builder, scorer scoring.Scorer, explainer scori
 }
 
 // WithLog returns a new Service with the given logger attached.
-func (s *Service) WithLog(log *slog.Logger) *Service {
+func (s *Service) WithLog(log *slog.Logger) Recommender {
 	cp := *s
 	cp.log = log
 	return &cp
 }
 
 // WithValueScorer returns a new Service with a value model scorer and balanced ensemble.
-func (s *Service) WithValueScorer(valueScorer scoring.Scorer) *Service {
+func (s *Service) WithValueScorer(valueScorer scoring.Scorer) Recommender {
 	return &Service{
 		builder:     s.builder,
 		scorer:      s.scorer,

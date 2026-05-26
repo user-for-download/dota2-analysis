@@ -153,7 +153,7 @@ func main() {
 	must(log, "main runner", err)
 
 	// ── Local runner (file-based bootstrap) ───────────────────────
-	var localRunner *enrich.Runner
+	var localRunner enrich.RunnerIface
 	if enrichCfg.LocalBootstrapDir != "" {
 		localBase := "file://" + enrichCfg.LocalBootstrapDir
 		localHTTP := httpclient.NewFileClient()

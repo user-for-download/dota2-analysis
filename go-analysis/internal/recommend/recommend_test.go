@@ -160,7 +160,7 @@ func TestRecommend_WithValueModel(t *testing.T) {
 		},
 	}
 
-	svc := NewService(builder, imitation, explainer, mockCatalog{}).WithValueScorer(value).WithLog(slog.Default())
+	svc := NewService(builder, imitation, explainer, mockCatalog{}).WithValueScorer(value)
 	st := makeDraftState()
 
 	result, err := svc.Recommend(context.Background(), st, 3)
@@ -205,7 +205,7 @@ func TestRecommend_ValueScorerFallback(t *testing.T) {
 		},
 	}
 
-	svc := NewService(builder, imitation, explainer, mockCatalog{}).WithValueScorer(value).WithLog(slog.Default())
+	svc := NewService(builder, imitation, explainer, mockCatalog{}).WithValueScorer(value)
 	st := makeDraftState()
 
 	result, err := svc.Recommend(context.Background(), st, 3)

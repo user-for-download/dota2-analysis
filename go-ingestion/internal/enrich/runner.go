@@ -9,6 +9,11 @@ import (
 	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/enrich/gate"
 )
 
+// RunnerIface abstracts the enrichment runner for testability.
+type RunnerIface interface {
+	Run(ctx context.Context) error
+}
+
 type RunnerOptions struct {
 	Sources []RunSource
 	HTTP    HTTPClient
