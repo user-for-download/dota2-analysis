@@ -33,28 +33,31 @@ def run(settings: Settings):
     model_path = settings.artifact_dir / "imitation" / "model.bin"
     booster = lgb.Booster(model_file=str(model_path))
 
+    # Compute Recall@5 per decision — is the actual pick in the top 5?
+    recall_at_5 = []
+    
+    # Sort to ensure predictions align with groups
+    decisions = decisions.sort_values(["match_id", "slot"])
     X = decisions[feature_cols].values.astype(float)
     predictions = booster.predict(X)
 
-    # Compute Recall@5 per match — fraction of actually-picked heroes
-    # that appear in the model's top 5 predictions.
-    recall_at_5 = []
-    for match_id, group in decisions.groupby("match_id"):
+    for (match_id, slot), group in decisions.groupby(["match_id", "slot"], sort=False):
         preds = predictions[group.index]
 
         picked = group.loc[group["label"] == 1.0, "hero_id"].values
         if len(picked) == 0:
             continue  # Skip if no positive label exists
 
-        n_picked = len(picked)
+        # There should be exactly 1 positive label per decision slot
+        actual_pick = picked[0]
 
-        # Top 5 predicted heroes among all candidates for this match.
+        # Top 5 predicted heroes among candidates for this specific slot
         top5_idx = np.argsort(preds)[-5:]
         top5_heroes = set(group.iloc[top5_idx]["hero_id"].values)
 
-        # How many of the actually-picked heroes are in the top 5?
-        hits = sum(1 for h in picked if h in top5_heroes)
-        recall_at_5.append(hits / n_picked)
+        # Was the actual pick in the top 5?
+        hit = 1.0 if actual_pick in top5_heroes else 0.0
+        recall_at_5.append(hit)
 
     avg_recall = np.mean(recall_at_5) if recall_at_5 else 0.0
     print(f"Recall@5: {avg_recall:.4f}")

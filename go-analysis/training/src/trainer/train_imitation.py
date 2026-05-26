@@ -69,13 +69,19 @@ def run(settings: Settings):
     train_df = candidates[candidates["match_id"].isin(match_ids[:split_idx])]
     val_df = candidates[candidates["match_id"].isin(match_ids[split_idx:])]
 
+    # Create a unique decision ID for grouping (match_id + slot)
+    # LambdaMART must rank candidates WITHIN a single decision context,
+    # not across the entire match.
+    train_df = train_df.sort_values(["match_id", "slot"])
+    val_df = val_df.sort_values(["match_id", "slot"])
+
     X_train = train_df[feature_cols].values.astype(float)
     y_train = train_df["label"].values
-    groups_train = train_df.groupby("match_id").size().values
+    groups_train = train_df.groupby(["match_id", "slot"], sort=False).size().values
 
     X_val = val_df[feature_cols].values.astype(float)
     y_val = val_df["label"].values
-    groups_val = val_df.groupby("match_id").size().values
+    groups_val = val_df.groupby(["match_id", "slot"], sort=False).size().values
 
     train_data = lgb.Dataset(X_train, label=y_train, group=groups_train)
     val_data = lgb.Dataset(X_val, label=y_val, group=groups_val, reference=train_data)
