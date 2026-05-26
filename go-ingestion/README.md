@@ -93,17 +93,21 @@ go-ingestion/               ← This module
     discoverer/  fetcher/  parser/  enricher/
     proxyloader/  migrator/  dlq/
   internal/
-    bootstrap/              Wires Redis/Postgres/metrics from Config
-    config/                 Env-driven configuration with all settings
-    dedup/  payload/  queue/ Domain abstractions + adapters
-    proxy/                  Pool, loader, validator, transports
-    metrics/                Sink, in-mem/otelmetrics variants
+    bootstrap/              Pure infrastructure helpers (ProxyPool, Postgres, …)
+    config/                 ◆ DELETED — config decentralized to each domain package
+    dedup/                  Seen-set abstraction (inmem + redis) + ErrAlreadySeen
     enrich/                 Reference-data sources (RunSource interface)
     enrich/sources/         dotaconstants providers
+    metrics/                Sink, inmem/otelmetrics variants
+    payload/                Blob store (inmem + redisstore)
+    proxy/                  Pool, loader, validator, transports
+    proxy/httpdo/           OTel-wrapped HTTPDoer
+    queue/                  Pub/Sub/Handler abstractions
+    queue/middleware/        OTel trace propagation decorators
+    queue/redisstreams/      Queue with W3C trace propagation
+    resilience/             Circuit breaker, retry policies
     storage/                matchstore, refdatastore, lookupstore, postgres, redis, …
     worker/                 Pipeline runner + Handler interface
-    proxy/httpdo/           OTel-wrapped HTTPDoer
-    queue/redisstreams/     Queue with W3C trace propagation
   assets/
     queries/                Discoverer SQL queries (one .sql per key, one subdir per cycle)
     dotaconstants/          Cached dotaconstants JSON for offline enricher bootstrap
@@ -123,8 +127,8 @@ deploy/                     ← Shared orchestration (repo root)
 
 All settings come from environment variables. The canonical source of
 truth is `deploy/.env` (149 vars, consolidated at the repo root) —
-copy it to `deploy/.env` and edit. See also
-`internal/config/config.go` for Go-side defaults.
+copy it to `deploy/.env` and edit. Each domain package exposes its own
+`LoadConfig()` function with sensible defaults documented below.
 The most commonly overridden ones:
 
 ### Redis

@@ -197,11 +197,15 @@ cmd/                    Process entry points (one main per binary)
   migrator/             SQL migrations
   dlq/                  Dead-letter queue inspector & recovery
 
-internal/
-  bootstrap/            Wires Redis/Postgres/metrics/proxy from Config
-  config/               Env-driven Config struct with all settings
+cmd/                    Process entry points (one main per binary)
+  discoverer/  fetcher/  parser/  enricher/
+  proxyloader/  migrator/  dlq/
 
-  dedup/                Seen-set abstraction (inmem + redis)
+internal/
+  bootstrap/            Pure infrastructure helpers (ProxyPool, Postgres, Logger, Telemetry, …)
+                        ◆ No god-objects — all helpers are small, focused, and domain-specific.
+
+  dedup/                Seen-set abstraction (inmem + redis) + ErrAlreadySeen
   dlq/                  Dead-letter queue commands (list, requeue, purge)
   enrich/               Reference-data domain
     httpclient/         HTTPClient interface + implementations
@@ -214,30 +218,27 @@ internal/
   proxy/                Lease-based pool
     httpdo/             OTel-wrapped HTTPDoer for trace injection
 
-  queue/                Push/Pop/Ack/Retry abstraction
+  queue/                Pub/Sub/Handler abstractions
+    middleware/         OTel trace propagation decorators for Publisher/Subscriber
     redisstreams/       Queue with W3C trace propagation
+
+  resilience/           Circuit breaker, retry policies
 
   storage/              Ports-and-adapters
     pgclient/           Pool opener + Stores bundle + otelpgx tracer
     matchstore/         MatchWriter/MatchReader interfaces + matchpg adapter
-      match.go          Core Match type
-      draft.go          Pick/ban draft types
-      environment.go    Game environment (game mode, lobby, region)
-      events.go         Timeline event types
-      identity.go       Player identity (slot, team, account)
+      matchpg/          PG implementation (reads domain.Match from go-core/domain)
       interfaces.go     MatchWriter / MatchReader interfaces
-      players.go        Per-player statistics
-      teams.go          Team-level aggregates
     lookupstore/        LookupReader interface + lookuppg adapter
     partitionstore/     PartitionAdmin interface + partitionpg adapter
     refdatastore/       RefDataWriter interface + refdatapg adapter
-    redis/              Connection wrapper
+    redis/              Connection wrapper + LoadConfig()
 
   worker/               Pipeline implementations
     discoverer/
     fetcher/
     parser/
-      decode.go         Core Match type and top-level decode
+      decode.go         Match decoding (outputs go-core/domain.Match)
       decode_match.go   Match-level JSON fields
       decode_players.go Player array and per-player fields
       decode_draft.go   Pick/ban phase reconstruction
@@ -249,6 +250,13 @@ The repository follows a **ports-and-adapters** layout: each domain capability
 lives behind a small interface (a "port") in its own package, with concrete
 implementations ("adapters") in subpackages (e.g., `matchpg`, `lookuppg`,
 `refdatapg`). Workers depend only on the interfaces, not on the adapters.
+
+> **Key simplification:** The `internal/config/` package has been deleted.
+> Each domain package (queue, payload, redis, proxy, fetcher, parser, discovery)
+> exposes its own `LoadConfig()` function. Every `cmd/<name>/main.go` composes
+> its own configuration from the exact domain packages it needs, acting as a
+> **Composition Root**. There is no central god-config, no shared bootstrap
+> wiring, and no hidden dependencies between binaries.
 
 ## Data Flow
 
@@ -315,9 +323,17 @@ and trace context propagation.
 
 All database operations use `otelpgx` for automatic span creation.
 
-Redis Streams propagate W3C trace context via `_otel_*` prefixed fields:
-- `Push()` injects the context into the message
-- `decodeMessage()` extracts the context and attaches it to `queue.Task.Ctx`
+Redis Streams propagate W3C trace context via `h:traceparent` / `h:tracestate`
+fields. The propagation is handled by **middleware decorators** in
+`internal/queue/middleware/telemetry.go`:
+
+- `TracedPublisher` — injects context into `msg.Headers` before `Publish()`
+- `TracedSubscriber` — extracts context from `msg.Headers` and creates a child
+  span before calling the handler; records stage latency via `LatencySink`
+
+These decorators are composed in each `cmd/<name>/main.go`. The queue itself
+(`redisstreams.Queue`) never touches trace headers directly — it treats
+both payloads and header fields as opaque `[]byte`/`map[string]string`.
 
 The discoverer creates a root `cycle.run` span; workers create `worker.process`
 spans that automatically nest under the trace context from the queue.
@@ -407,11 +423,19 @@ matches.
 
 ### Bootstrap & Wait
 
-`internal/bootstrap` centralises wiring. Each `cmd/<binary>` calls a
-small set of helpers (`Core`, `ProxyPool`, `FetchQueue`, …) so all
-binaries share identical configuration parsing and connection setup.
-`WaitForProxies` and `WaitForPostgres` block startup until external
-dependencies are reachable.
+`internal/bootstrap` provides lightweight, stateless helpers — no god-objects,
+no monolithic config. Each `cmd/<binary>` calls only the helpers it needs:
+
+- `ProxyPool(rdb, cfg, log)` — creates a Redis-backed proxy pool
+- `Postgres(ctx, cfg, log)` — opens an OTel-traced pgxpool
+- `NewLogger(handler)` — wraps slog with trace ID injection
+- `InitTelemetry(ctx, name, endpoint, rate)` — sets up OTLP tracing
+- `MatchWriter(db, log)` / `ReferenceWriter(db, log)` — PG store constructors
+- `WaitForProxies` / `WaitForPostgres` — block startup until dependencies are reachable
+
+There is no `Core()` function, no shared `Deps` struct, no hidden wiring.
+Every binary is a **Composition Root** that explicitly constructs its own
+dependency graph from domain-specific configs.
 
 ## Design Principles
 
@@ -430,10 +454,11 @@ prevents unbounded growth when downstream stages slow down.
 `metrics.FailureKind`s so dashboards and alerts can distinguish
 "upstream is rate-limiting us" from "decoding broke after a schema
 change".
-**Configuration via environment.** All settings are loaded into typed config
-structs in `internal/config/config.go`. Workers receive configured instances
-— no direct `os.Getenv` calls in worker packages. This improves testability
-and ensures all settings are in one place.
+**Configuration via environment.** All settings are loaded from env vars into
+typed config structs by domain-specific `LoadConfig()` functions. Workers
+receive configured instances — no direct `os.Getenv` calls in worker packages.
+Each `cmd/<name>/main.go` acts as the **Composition Root**, importing only
+the config loaders it needs. No central god-config, no hidden coupling.
 **Observability via OpenTelemetry.** All services push traces and metrics via
 OTLP to Jaeger. W3C trace context propagates through Redis Streams
 for end-to-end visualization.
@@ -444,7 +469,7 @@ for end-to-end visualization.
 |----------------|---------------------|-------------------------------------------|
 | MatchID        | int64               | discoverer → fetch queue → fetcher → parser → matchstore |
 | RawPayload     | []byte (JSON)       | fetcher → payload store → parser          |
-| Match          | matchstore.Match    | parser → matchstore.MatchWriter           |
+| Match          | domain.Match        | parser → matchstore.MatchWriter (via go-core/domain) |
 | MatchRef       | refdatastore.MatchRef | parser → refdatastore                   |
 | Proxy          | proxy.Proxy         | proxyloader → proxy pool → fetcher       |
 | HTTPDoer       | worker.HTTPDoer     | fetcher (injected)                     |
@@ -456,7 +481,7 @@ for end-to-end visualization.
 
 - `MatchID` — from upstream API (OpenDota), canonical identifier
 - `RawPayload` — JSON blob from `<UPSTREAM>/match/<id>`
-- `Match` — parsed and validated domain object with Players, Details, Draft, etc.
+- `Match` — `go-core/domain.Match`, the single canonical type across the entire monorepo
 - `MatchRef` — reference from refdatastore for hero/item name resolution
 - `Proxy` — leased from Redis ZSET, carries endpoint + credentials
 - `HTTPDoer` — discovered or injected, used by cycles and fetcher
@@ -483,22 +508,29 @@ stream (`dota2:fetch:dlq`, `dota2:parse:dlq`) for manual inspection.
 
 ## Configuration
 
-All configuration is environment-driven and lives in
-`internal/config/config.go`. Highlights:
+Configuration is **fully decentralized**. The monolithic `internal/config/config.go`
+has been deleted. Every domain package exposes its own `LoadConfig()` function
+reading the corresponding env vars with sensible defaults:
 
-- `REDIS_ADDRS`, `REDIS_PASSWORD`, `REDIS_DB`, pool sizing
-- `POSTGRES_DSN` and connection limits
-- `PROXY_*` — pool size, hold time, ranking weights, validation parallelism,
-  force-refresh interval
-- `QUEUE_*` — group name, `MAX_LEN`, retry policy
-- `DISCOVERY_QUERIES_DIR`, `DISCOVERY_DEFAULT_KEY`, `DISCOVERY_RUN_AT_START`
-- `FETCHER_*` — upstream URL, batch size, timeouts, payload TTL
-- `ENRICH_DOTACONSTANTS_BASE_URL`, `ENRICH_FORCE_BOOTSTRAP`
-- `MIGRATOR_DSN`, `MIGRATOR_MIGRATIONS_DIR`
-- `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SAMPLE_RATE`
+| Package | Function | Prefix |
+|---------|----------|--------|
+| `internal/storage/redis` | `LoadConfig()` | `REDIS_*` |
+| `internal/queue` | `LoadConfig()` | `QUEUE_*` |
+| `internal/payload` | `LoadConfig()` | `PAYLOAD_*` |
+| `internal/proxy` | `LoadConfig()` | `PROXY_*` |
+| `internal/worker/fetcher` | `LoadConfig()` | `FETCHER_*` |
+| `internal/worker/parser` | `LoadConfig()` | `PARSER_*` |
+| `internal/worker/discovery` | `LoadConfig()` | `DISCOVERY_*` |
 
-Defaults are sensible for a single-host development setup; production
-deployments override via `.env` or the orchestration layer.
+Each `cmd/<name>/main.go` imports exactly the config loaders it needs and
+builds its own `Config` structs — no shared god-config, no hidden dependencies.
+Postgres config still uses `go-core/config.PostgresConfig`. Telemetry config
+(`OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SAMPLE_RATE`) is read directly from
+env vars by each main.go until it gets its own package.
+
+The canonical reference is `deploy/.env` (149 vars, consolidated at the repo
+root). Defaults are sensible for single-host development; production overrides
+via `.env` or the orchestration layer.
 
 ## Extending the System
 
@@ -508,12 +540,12 @@ deployments override via `.env` or the orchestration layer.
 `DependsOn()`. The runner's topological sort will schedule it correctly.
 Types come from `refdatastore` — the canonical package for reference data.
 
-**Adding a new pipeline stage.** Define a queue spec in
-`internal/bootstrap/bootstrap.go`, write a worker under
+**Adding a new pipeline stage.** Write a worker under
 `internal/worker/<name>/` that implements `worker.Handler` (see
-`fetcher` and `parser` for examples), and wire it in
-`cmd/<name>/main.go` via `worker.Run()`. Failures should classify into
-existing `metrics.FailureKind`s where possible.
+`fetcher` and `parser` for examples), create its config package
+(`internal/worker/<name>/config.go`), and wire it in
+`cmd/<name>/main.go` as a Composition Root via `worker.Run()`.
+Failures should classify into existing `metrics.FailureKind`s where possible.
 
 **Swapping a backend.** Each port has at least an in-memory adapter
 useful for tests. To replace Redis Streams with, say, NATS JetStream,
