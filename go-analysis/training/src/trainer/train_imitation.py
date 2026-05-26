@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 from datetime import datetime, timezone
 from trainer.config import Settings
-from trainer.feature_specs import FEATURE_SPEC_VERSION, FEATURES
+from trainer.feature_specs import FEATURE_SPEC_VERSION
 from trainer.labels import imitation_labels
 from trainer.candidates import generate_candidates
 
@@ -72,10 +72,11 @@ def run(settings: Settings):
     model_path = out_dir / "model.bin"
     booster.save_model(str(model_path))
 
-    # Save feature spec — Go inference validates this at boot.
+    # Save feature spec — Must match the actual features used for training!
+    simplified_features = [{"name": "hero_id", "dtype": "f32"}]
     spec = {
         "version": FEATURE_SPEC_VERSION,
-        "features": FEATURES,
+        "features": simplified_features,
     }
     with open(out_dir / "spec.json", "w") as f:
         json.dump(spec, f, indent=2)

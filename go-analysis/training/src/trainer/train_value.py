@@ -64,19 +64,22 @@ def run(settings: Settings):
 
     booster.save_model(str(out_dir / "model.bin"))
 
-    # Save feature spec so inference can validate input shape
+    # Save feature spec — Must match the actual features used for training!
+    simplified_features = [{"name": col, "dtype": "f32"} for col in feature_cols]
     spec = {
         "version": FEATURE_SPEC_VERSION,
-        "features": FEATURES,
+        "features": simplified_features,
     }
     with open(out_dir / "spec.json", "w") as f:
         json.dump(spec, f, indent=2)
 
+    # Save metadata
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    auc = booster.best_score.get("valid_0", {}).get("auc", 0.0)
     meta = {
         "version": f"value-v{settings.patch_id}-{timestamp}",
         "trained_at": timestamp,
-        "auc": 0.0,
+        "auc": auc,
         "best_iter": booster.best_iteration,
         "patch_id": settings.patch_id,
     }
