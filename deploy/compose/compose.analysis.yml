@@ -95,6 +95,7 @@ services:
         container_name: dota2-analysis-trainer
         profiles: [training]
         restart: "no"
+        command: pipeline
         env_file: [.env]
         environment:
             <<: *common-env
