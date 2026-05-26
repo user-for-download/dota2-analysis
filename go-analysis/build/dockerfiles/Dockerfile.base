@@ -1,0 +1,43 @@
+# syntax=docker/dockerfile:1.7
+# Single-stage builder image. Service Dockerfiles FROM this to get a
+# pre-warmed module cache and the full source tree, then produce their
+# own alpine runtime stage.
+#
+# Build context is REPO ROOT (set by deploy/docker-bake.hcl).
+FROM golang:1.26.2-alpine
+
+RUN apk add --no-cache git ca-certificates tzdata
+
+WORKDIR /src
+
+# Module resolution via go.mod replace directive (points to ../go-core).
+COPY go-analysis/go.mod go-analysis/go.sum ./go-analysis/
+COPY go-core/go.mod go-core/go.sum ./go-core/
+
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=cache,target=/go/pkg/mod \
+    cd go-analysis && go mod download
+
+ENV CGO_ENABLED=0 \
+    GOOS=linux \
+    GOFLAGS="-trimpath"
+
+ARG VERSION=dev
+ARG COMMIT=unknown
+ARG BUILD_DATE=
+ARG GOMAXPROCS=2
+ENV GOMAXPROCS=${GOMAXPROCS}
+
+COPY go-analysis/ ./go-analysis/
+COPY go-core/ ./go-core/
+
+# Build only the binaries needed by analysis service images.
+# ./cmd/migrator is built separately via the ingestion migrator Dockerfile.
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=cache,target=/go/pkg/mod \
+    mkdir -p /out && \
+    cd go-analysis && \
+    go build \
+      -ldflags="-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.buildDate=${BUILD_DATE}" \
+      -o /out/ \
+      ./cmd/api ./cmd/featurizer ./cmd/backtester

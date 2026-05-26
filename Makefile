@@ -13,11 +13,14 @@ COMPOSE := docker compose -p $(PROJECT_NAME) --project-directory . -f $(COMPOSE_
         fetch-constants fetch-proxies bootstrap clean-assets \
         up upd down downv logs \
         infra migrate \
-        ingestion analysis \
+        ingestion analytics \
         train backtest \
         shell-db shell-redis \
         publish-core \
-        armageddon
+        test vet new-migration migrate-local \
+        db-backup db-restore \
+        prune armageddon \
+        shell-db shell-redis
 
 # ───── Help ─────
 help: ## Show this help
@@ -41,10 +44,10 @@ build: ## Build all Docker images
 
 # ───── Run ─────
 infra: ## Start infrastructure (Postgres + Redis + Jaeger)
-	$(COMPOSE) --profile infra up
+	$(COMPOSE) --profile infra up -d
 
 migrate: ## Run database migrations (via Docker compose)
-	$(COMPOSE) --profile all run --rm migrator
+	$(COMPOSE) --profile migrate run --rm migrator
 
 migrate-local: ## Run migrations against local Postgres (no Docker)
 	go run -mod=mod ./go-ingestion/cmd/migrator
@@ -71,7 +74,7 @@ logs: ## Follow all logs
 
 # ───── ML ─────
 train: ## Train a new LightGBM model (one-shot)
-	cd go-analysis && docker compose -f deploy/docker-compose.yml --profile training up --build trainer
+	$(COMPOSE) -f deploy/compose/compose.analysis.yml --profile training up --build trainer
 
 backtest: ## Run backtester against current model
 	$(COMPOSE) --profile analytics run --rm backtester
@@ -81,7 +84,7 @@ shell-db: ## Open psql shell
 	$(COMPOSE) exec postgres psql -U $${POSTGRES_USER:-dota2} -d $${POSTGRES_DB:-dota2}
 
 shell-redis: ## Open redis-cli
-	$(COMPOSE) exec redis redis-cli
+	$(COMPOSE) exec redis env REDISCLI_AUTH=$${REDIS_PASSWORD:-dota2} redis-cli
 
 # ───── Publish ─────
 DOWNSTREAM_MODS := go-ingestion go-analysis
@@ -94,7 +97,7 @@ publish-core: ## Tag and push go-core, update downstream modules, regenerate go.
 	for mod in $(DOWNSTREAM_MODS); do \
 		echo "--- Updating $$mod ---"; \
 		cd $(CURDIR)/$$mod; \
-		sed -i '/^replace.*go-core/d' go.mod; \
+		sed -i.bak '/^replace.*go-core/d' go.mod && rm -f go.mod.bak; \
 		GOWORK=off go get $(CORE_MODULE)@$$VERSION; \
 		GOWORK=off go mod tidy; \
 		cd $(CURDIR); \
@@ -188,7 +191,7 @@ db-restore: ## Restore a database backup. Usage: make db-restore DUMP=file.dump 
 	if [ "$$confirm" != "y" ]; then echo "Restore aborted."; exit 1; fi
 
 	@echo "1/5: Restoring global roles..."
-	@cat $(ROLES) | docker exec -i $(DB_CONTAINER) psql -U $(DB_USER) -d postgres > /dev/null 2>&1 || true
+	@cat $(ROLES) | docker exec -i $(DB_CONTAINER) psql -U $(DB_USER) -d postgres > /dev/null 2>&1 || { echo "ERROR: roles restore failed" >&2; exit 1; }
 
 	@echo "2/5: Dropping existing database..."
 	@docker exec -i $(DB_CONTAINER) psql -U $(DB_USER) -d postgres -c "DROP DATABASE IF EXISTS $(DB_NAME) WITH (FORCE);"

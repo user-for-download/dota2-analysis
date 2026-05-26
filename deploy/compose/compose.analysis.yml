@@ -49,9 +49,9 @@ services:
             - "127.0.0.1:${ANALYSIS_API_PORT:-8080}:8080"
         volumes:
             - ./go-analysis/assets/models:/models:ro
-        #    depends_on:
-        #      postgres:
-        #        condition: service_healthy
+        depends_on:
+            postgres:
+                condition: service_healthy
         networks: [dota2-net]
 
     featurizer:
@@ -64,9 +64,9 @@ services:
             <<: *common-env
             POSTGRES_DSN: postgresql://${POSTGRES_USER:-dota2}:${POSTGRES_PASSWORD:-dota2}@postgres:5432/${POSTGRES_DB:-dota2}
             ANALYTICS_FEATURIZER_INTERVAL: ${ANALYTICS_FEATURIZER_INTERVAL:-24h}
-        #    depends_on:
-        #      postgres:
-        #        condition: service_healthy
+        depends_on:
+            postgres:
+                condition: service_healthy
         networks: [dota2-net]
 
     backtester:
@@ -83,9 +83,9 @@ services:
             BACKTEST_PATCH_ID: ${BACKTEST_PATCH_ID:-}
         volumes:
             - ./go-analysis/assets/models:/models:ro
-        #    depends_on:
-        #      postgres:
-        #        condition: service_healthy
+        depends_on:
+            postgres:
+                condition: service_healthy
         networks: [dota2-net]
 
     trainer:
@@ -105,9 +105,9 @@ services:
         volumes:
             - ./go-analysis/assets/models:/models
             - trainer-artifacts:/app/artifacts
-        #    depends_on:
-        #      postgres:
-        #        condition: service_healthy
+        depends_on:
+            postgres:
+                condition: service_healthy
         networks: [dota2-net]
 
 volumes:
@@ -116,4 +116,4 @@ volumes:
 networks:
     dota2-net:
         external: true
-        name: go-dota2_dota2-net
+        name: dota2-analysis_infra-net

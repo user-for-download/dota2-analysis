@@ -99,17 +99,7 @@ target "proxyloader" {
   }
 }
 
-target "ingestion-migrator" {
-  inherits   = ["_common"]
-  context    = "."
-  dockerfile = "go-ingestion/build/dockerfiles/Dockerfile.migrator"
-  tags       = ["${REGISTRY}go-dota2-ingestion-migrator:${TAG}"]
-  contexts = {
-    "go-dota2-base-local" = "target:ingestion-base"
-  }
-}
-
-# ───── Migrator (canonical — shared by ingestion/analysis) ─────
+# ───── Migrator (shared by ingestion and analysis) ─────
 
 target "migrator" {
   inherits   = ["_common"]
@@ -160,18 +150,25 @@ target "backtester" {
   }
 }
 
+target "trainer" {
+  inherits   = ["_common"]
+  context    = "."
+  dockerfile = "go-analysis/build/dockerfiles/Dockerfile.trainer"
+  tags       = ["${REGISTRY}go-dota2-analysis-trainer:${TAG}"]
+}
+
 # ───── Groups ─────
 
 group "ingestion" {
   targets = [
     "ingestion-base",
     "discoverer", "fetcher", "parser", "enricher",
-    "dlq", "proxyloader", "ingestion-migrator",
+    "dlq", "proxyloader", "migrator",
   ]
 }
 
 group "analysis" {
-  targets = ["analysis-base", "api", "featurizer", "backtester"]
+  targets = ["analysis-base", "api", "featurizer", "backtester", "trainer"]
 }
 
 group "all-images" {

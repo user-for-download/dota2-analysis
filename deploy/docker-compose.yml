@@ -5,6 +5,7 @@ x-common-env: &common-env
     LOG_LEVEL: ${LOG_LEVEL:-info}
     OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-jaeger:4318}
     ANALYTICS_PATCH_ID: ${ANALYTICS_PATCH_ID:-72} # single source of truth
+    REDIS_PASSWORD: ${REDIS_PASSWORD:-dota2}
 
 x-restart: &restart
     restart: unless-stopped
@@ -24,13 +25,13 @@ services:
         container_name: dota2-redis
         <<: [*restart, *logging]
         profiles: [infra, ingestion, analytics, all]
-        command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+        command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru --requirepass "${REDIS_PASSWORD:-dota2}"
         volumes:
             - redis-data:/data
         ports:
             - "127.0.0.1:${REDIS_PORT:-6379}:6379"
         healthcheck:
-            test: ["CMD", "redis-cli", "ping"]
+            test: ["CMD-SHELL", "redis-cli -a '${REDIS_PASSWORD:-dota2}' ping 2>/dev/null | grep -q PONG"]
             interval: 5s
             timeout: 3s
             retries: 5
@@ -58,11 +59,6 @@ services:
             - pg-data:/var/lib/postgresql/data
         ports:
             - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
-        healthcheck:
-            test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-dota2}"]
-            interval: 5s
-            timeout: 3s
-            retries: 5
         networks: [infra-net]
 
     jaeger:
@@ -157,6 +153,7 @@ services:
             REDIS_ADDRS: ${REDIS_ADDRS:-redis:6379}
             ENRICH_DOTACONSTANTS_BASE_URL: ${ENRICH_DOTACONSTANTS_BASE_URL:-https://raw.githubusercontent.com/odota/dotaconstants/master/build}
             ENRICH_LOCAL_DIR: /dotaconstants
+            QUEUE_CONSUMER: enricher-${HOSTNAME:-default}
             POSTGRES_DSN: postgresql://${POSTGRES_USER:-dota2}:${POSTGRES_PASSWORD:-dota2}@postgres:5432/${POSTGRES_DB:-dota2}
         volumes:
             - ./go-ingestion/assets/dotaconstants:/dotaconstants:ro
@@ -183,6 +180,7 @@ services:
             FETCHER_HTTP_TIMEOUT: ${FETCHER_HTTP_TIMEOUT:-15s}
             FETCHER_PAYLOAD_TTL: ${FETCHER_PAYLOAD_TTL:-1h}
             FETCHER_WAIT_TIMEOUT: ${FETCHER_WAIT_TIMEOUT:-5m}
+            POSTGRES_DSN: postgresql://${POSTGRES_USER:-dota2}:${POSTGRES_PASSWORD:-dota2}@postgres:5432/${POSTGRES_DB:-dota2}
         depends_on:
             redis: { condition: service_healthy }
             migrator: { condition: service_completed_successfully }
@@ -224,7 +222,7 @@ services:
             ANALYTICS_MODEL_DIR: /models/imitation/current
             ANALYTICS_VALUE_MODEL_DIR: /models/value/current
         ports:
-            - "0.0.0.0:${ANALYSIS_API_PORT:-8080}:8080"
+            - "127.0.0.1:${ANALYSIS_API_PORT:-8080}:8080"
         volumes:
             # Prerequisite: ./go-analysis/assets/models/ must exist on the
             # host (create with mkdir -p if absent) or Docker will create an
@@ -266,6 +264,7 @@ services:
             POSTGRES_DSN: postgresql://${POSTGRES_USER:-dota2}:${POSTGRES_PASSWORD:-dota2}@postgres:5432/${POSTGRES_DB:-dota2}
             ANALYTICS_SCORER_KIND: ${ANALYTICS_SCORER_KIND:-linear}
             ANALYTICS_MODEL_DIR: /models/imitation/current
+            ANALYTICS_VALUE_MODEL_DIR: /models/value/current
             BACKTEST_PATCH_ID: ${BACKTEST_PATCH_ID:-}
         volumes:
             # Prerequisite: ./go-analysis/assets/models/ must exist on the

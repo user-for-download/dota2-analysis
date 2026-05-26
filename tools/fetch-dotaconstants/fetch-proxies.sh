@@ -20,7 +20,7 @@ if [ -f "$ENV_FILE" ]; then
   set +a
 fi
 
-DEST="${DEST:-go-ingestion/config/proxy.txt}"
+DEST="go-ingestion/config/proxy.txt"
 URL="${URL:-https://raw.githubusercontent.com/iplocate/free-proxy-list/refs/heads/main/all-proxies.txt}"
 
 mkdir -p "$(dirname "$DEST")"
