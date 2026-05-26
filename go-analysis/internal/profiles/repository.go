@@ -62,6 +62,13 @@ type TeamHeroStats struct {
 	WRShrunk float64
 }
 
+// GlobalHeroStats is the global pick+win counts for a hero, used by
+// per-candidate hero-prior features (hero_pick_rate, hero_wr, hero_popularity).
+type GlobalHeroStats struct {
+	PickCount int
+	WinCount  int
+}
+
 // Repository provides read access to analytics data.
 // All SQL is encapsulated here — callers know nothing about Postgres.
 type Repository interface {
@@ -86,4 +93,7 @@ type Repository interface {
 	CounterAvgBatch(ctx context.Context, candidates []domain.HeroID, enemies []domain.HeroID) (map[domain.HeroID]float64, error)
 	RosterComfortAvgBatch(ctx context.Context, roster []domain.AccountID, heroes []domain.HeroID) (map[domain.HeroID]float64, error)
 	StarThreatBatch(ctx context.Context, themTeamID domain.TeamID, heroes []domain.HeroID, minGames int) (map[domain.HeroID]float64, error)
+
+	// Global hero priors (per-candidate ranking features)
+	GlobalHeroStatsBatch(ctx context.Context, heroes []domain.HeroID) (map[domain.HeroID]GlobalHeroStats, error)
 }

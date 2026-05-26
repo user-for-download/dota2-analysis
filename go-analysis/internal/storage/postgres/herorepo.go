@@ -100,6 +100,45 @@ func (r *PGRepository) SynergyAvgBatch(ctx context.Context, allies, candidates [
 	return out, rows.Err()
 }
 
+// GlobalHeroStatsBatch returns global pick+win counts for heroes from picks_bans.
+func (r *PGRepository) GlobalHeroStatsBatch(ctx context.Context, heroes []domain.HeroID) (map[domain.HeroID]profiles.GlobalHeroStats, error) {
+	out := make(map[domain.HeroID]profiles.GlobalHeroStats, len(heroes))
+	for _, h := range heroes {
+		out[h] = profiles.GlobalHeroStats{}
+	}
+	if len(heroes) == 0 {
+		return out, nil
+	}
+	rows, err := r.db.Query(ctx, `
+		SELECT pb.hero_id,
+		       COUNT(*)::int,
+		       SUM(CASE WHEN (pb.team = 0 AND m.radiant_win) OR (pb.team = 1 AND NOT m.radiant_win) THEN 1 ELSE 0 END)::int
+		FROM public.picks_bans pb
+		JOIN public.matches m ON m.match_id = pb.match_id
+		WHERE pb.is_pick = true
+		  AND m.leagueid > 0
+		  AND m.radiant_win IS NOT NULL
+		  AND pb.hero_id = ANY($1)
+		GROUP BY pb.hero_id
+	`, heroIDsToInt16(heroes))
+	if err != nil {
+		return nil, fmt.Errorf("global hero stats: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var heroID int16
+		var pickCount, winCount int
+		if err := rows.Scan(&heroID, &pickCount, &winCount); err != nil {
+			return nil, fmt.Errorf("scan global hero stats: %w", err)
+		}
+		out[domain.HeroID(heroID)] = profiles.GlobalHeroStats{
+			PickCount: pickCount,
+			WinCount:  winCount,
+		}
+	}
+	return out, rows.Err()
+}
+
 // CounterAvgBatch returns average counter WR of candidates against enemies.
 func (r *PGRepository) CounterAvgBatch(ctx context.Context, candidates, enemies []domain.HeroID) (map[domain.HeroID]float64, error) {
 	out := make(map[domain.HeroID]float64, len(candidates))

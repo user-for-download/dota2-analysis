@@ -67,6 +67,39 @@ func DefaultRegistry() *FeatureRegistry {
 		return NewStarThreatSource(repo), nil
 	})
 
+	// ── Per-candidate hero priors ────────────────────────────────────
+	r.Register("hero_pick_rate", func(repo profiles.Repository, _ domain.HeroCatalog) (FeatureSource, error) {
+		return NewHeroPickRateSource(repo), nil
+	})
+	r.Register("hero_wr", func(repo profiles.Repository, _ domain.HeroCatalog) (FeatureSource, error) {
+		return NewHeroWRSource(repo), nil
+	})
+	r.Register("hero_popularity", func(repo profiles.Repository, _ domain.HeroCatalog) (FeatureSource, error) {
+		return NewHeroPopularitySource(repo), nil
+	})
+
+	// ── Attribute-based draft features ──────────────────────────────
+	r.Register("attr_is_str", func(_ profiles.Repository, catalog domain.HeroCatalog) (FeatureSource, error) {
+		return NewAttrIsStrSource(catalog), nil
+	})
+	r.Register("attr_is_agi", func(_ profiles.Repository, catalog domain.HeroCatalog) (FeatureSource, error) {
+		return NewAttrIsAgiSource(catalog), nil
+	})
+	r.Register("attr_is_int", func(_ profiles.Repository, catalog domain.HeroCatalog) (FeatureSource, error) {
+		return NewAttrIsIntSource(catalog), nil
+	})
+	r.Register("attr_fit_score", func(repo profiles.Repository, catalog domain.HeroCatalog) (FeatureSource, error) {
+		return NewAttrFitScoreSource(repo, catalog), nil
+	})
+
+	// ── Draft position (same within group) ──────────────────────────
+	r.Register("draft_slot_norm", func(_ profiles.Repository, _ domain.HeroCatalog) (FeatureSource, error) {
+		return NewDraftSlotNormSource(), nil
+	})
+	r.Register("is_pick_phase", func(_ profiles.Repository, _ domain.HeroCatalog) (FeatureSource, error) {
+		return NewIsPickPhaseSource(), nil
+	})
+
 	return r
 }
 
@@ -97,11 +130,11 @@ func NewBuilderFromSpec(spec *domain.FeatureSpec, repo profiles.Repository, cata
 }
 
 // DefaultSources returns the hardcoded default feature source ordering used
-// when no spec.json is available (linear path or LGBM fallback).  These match
-// the registered names in DefaultRegistry and keep the same order used by the
-// original trained models.
+// when no spec.json is available (linear path or LGBM fallback).  The order
+// must match FEATURES in the training pipeline's feature_specs.py.
 func DefaultSources(repo profiles.Repository, catalog domain.HeroCatalog) []FeatureSource {
 	return []FeatureSource{
+		// MV-dependent (0-7)
 		NewTeamPicksSource(repo),
 		NewTeamWRShrunkSource(repo),
 		NewSynergySource(repo),
@@ -110,6 +143,18 @@ func DefaultSources(repo profiles.Repository, catalog domain.HeroCatalog) []Feat
 		NewHeroMetaRoleCountSource(catalog),
 		NewPlayerComfortSource(repo),
 		NewStarThreatSource(repo),
+		// Hero priors (8-10) — vary per candidate
+		NewHeroPickRateSource(repo),
+		NewHeroWRSource(repo),
+		NewHeroPopularitySource(repo),
+		// Attribute diversity (11-14) — vary per candidate
+		NewAttrIsStrSource(catalog),
+		NewAttrIsAgiSource(catalog),
+		NewAttrIsIntSource(catalog),
+		NewAttrFitScoreSource(repo, catalog),
+		// Draft position (15-16) — same within group
+		NewDraftSlotNormSource(),
+		NewIsPickPhaseSource(),
 	}
 }
 

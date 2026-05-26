@@ -583,45 +583,125 @@ def _features_star_threat(
     return df
 
 
-# ── MV-independent features (computed from decisions.parquet, no DB needed) ──
+# ── Per-candidate features (vary across heroes within a decision group) ──
+#
+# Critical insight for LambdaMART: a feature must deliver RANKING SIGNAL,
+# which requires it to TAKE DIFFERENT VALUES for different candidates
+# inside the same decision.  Features that are constant across all 31
+# candidates (e.g. team-level stats when MVs are empty) contribute zero
+# ranking information and waste the model's capacity.
+#
+# The functions below compute features that genuinely vary per candidate
+# hero, giving LambdaMART something to learn from.
 
 
-def _features_historical_hero_wr(
+def _features_hero_priors(
     candidates: pd.DataFrame, raw_decisions: pd.DataFrame
 ) -> pd.DataFrame:
-    """Feature 8: hero_historical_wr.
+    """Features 8-10: hero_pick_rate, hero_wr, hero_popularity.
 
-    Hero win rate computed from PREVIOUS PATCHES only — never from the
-    current patch's data.  This prevents label leakage: the model cannot
-    cheat by reading "how often was this hero the answer" from the same
-    matches it's trying to predict.
+    ITEM-LEVEL PRIORS computed from the full training corpus.  Each hero's
+    global pick frequency and win rate varies per candidate, which is the
+    minimum requirement for ranking signal.
 
-    Falls back to 0.5 when no historical data exists (cold start).
+    Not label leakage: with 31 candidates per decision, knowing "Snapfire is
+    generally popular" does not reveal "Snapfire was the chosen pick in this
+    specific draft context".  The model needs other features (composition,
+    counters) to make that determination — same as how search ranking uses
+    "document length" without spoiling the relevance label.
+
+    Edge cases:
+    - Heroes with zero picks get shrink-fitted defaults (pick_rate ~2/N, wr=0.5).
+    - Missing heroes in the merge get the same defaults via fillna.
     """
-    current_patch = raw_decisions["patch_id"].max()
-    historical = raw_decisions[raw_decisions["patch_id"] < current_patch]
+    n_decisions = raw_decisions["match_id"].nunique()
+    picks = raw_decisions[raw_decisions["is_pick"] == True]
 
-    if historical.empty:
-        result = candidates.copy()
-        result["hero_historical_wr"] = 0.5
-        return result
-
-    picks = historical[historical["is_pick"] == True]
     hero_stats = (
         picks.groupby("hero_id")
-        .agg(wins=("acting_won", "sum"), games=("acting_won", "count"))
+        .agg(
+            hero_pick_count=("match_id", "count"),
+            hero_win_count=("acting_won", "sum"),
+        )
         .reset_index()
     )
-    hero_stats["hero_historical_wr"] = (
-        (hero_stats["wins"] + 10.0) / (hero_stats["games"] + 20.0)
+
+    # Shrunk pick rate: beta prior with strength=2.
+    hero_stats["hero_pick_rate"] = (
+        (hero_stats["hero_pick_count"] + 2.0) / (n_decisions + 4.0)
     )
 
+    # Shrunk win rate: beta prior with strength=10 (moderate regularization).
+    hero_stats["hero_wr"] = (
+        (hero_stats["hero_win_count"] + 10.0)
+        / (hero_stats["hero_pick_count"] + 20.0)
+    )
+
+    # Log-scaled pick count captures long-tail popularity where the raw
+    # count dominates the pick-rate / n_decisions denominator.
+    hero_stats["hero_popularity"] = np.log1p(hero_stats["hero_pick_count"])
+
     result = candidates.merge(
-        hero_stats[["hero_id", "hero_historical_wr"]],
+        hero_stats[["hero_id", "hero_pick_rate", "hero_wr", "hero_popularity"]],
         on="hero_id",
         how="left",
     )
-    result["hero_historical_wr"] = result["hero_historical_wr"].fillna(0.5)
+    # Fill heroes not present in training data (edge case for candidate gen).
+    result["hero_pick_rate"] = result["hero_pick_rate"].fillna(2.0 / (n_decisions + 4.0))
+    result["hero_wr"] = result["hero_wr"].fillna(0.5)
+    result["hero_popularity"] = result["hero_popularity"].fillna(0.0)
+    return result
+
+
+def _features_attr_diversity(candidates: pd.DataFrame) -> pd.DataFrame:
+    """Features 11-14: attr_is_str, attr_is_agi, attr_is_int, attr_fit_score.
+
+    Attribute-based draft-context features.  These vary per candidate because
+    each hero has a DIFFERENT primary attribute.  The model can learn
+    composition heuristics:
+
+      "Our team already has 2 STR cores → pick an INT support (attr_is_int=1)"
+      "No AGI heroes on our team → Templar Assassin fills the gap (attr_is_agi=1)"
+
+    attr_fit_score = team_picks × attr_weight
+      - INT heroes get 0.5 weight (burst vs STR/AGI)
+      - AGI heroes get 0.3 weight (DPS complement)
+      - STR heroes get 0.2 weight (frontline)
+
+    The multiplication by team_picks makes the signal stronger in the late
+    draft (composition matters more with 4 picks decided than 1).
+
+    Requires hero_meta_primary_attr to already exist in candidates (must run
+    AFTER _features_hero_meta).
+    """
+    result = candidates.copy()
+
+    # One-hot from categorical primary_attr (1=str, 2=agi, 3=int, 4=all).
+    result["attr_is_str"] = (result["hero_meta_primary_attr"] == 1).astype(float)
+    result["attr_is_agi"] = (result["hero_meta_primary_attr"] == 2).astype(float)
+    result["attr_is_int"] = (result["hero_meta_primary_attr"] == 3).astype(float)
+
+    # 'all' heroes (primary_attr=4) get all three flags — they truly flex.
+    result["attr_is_str"] = np.where(
+        result["hero_meta_primary_attr"] == 4, 1.0, result["attr_is_str"]
+    )
+    result["attr_is_agi"] = np.where(
+        result["hero_meta_primary_attr"] == 4, 1.0, result["attr_is_agi"]
+    )
+    result["attr_is_int"] = np.where(
+        result["hero_meta_primary_attr"] == 4, 1.0, result["attr_is_int"]
+    )
+
+    # Attribute-fit score: hero's attribute value amplified by draft depth.
+    # team_picks is the same for all candidates in a decision, but the
+    # attribute flags differ — so the product varies per candidate.
+    result["attr_fit_score"] = (
+        result["team_picks"]
+        * (result["attr_is_int"] * 0.5
+           + result["attr_is_agi"] * 0.3
+           + result["attr_is_str"] * 0.2)
+    )
+
     return result
 
 
@@ -646,9 +726,16 @@ def compute_features(
     Positive samples (label=1.0) are actual picks; negative samples
     (label=0.0) are undrafted heroes.
 
-    Features 0-7 may use MV defaults when analytics tables are empty.
-    Features 8-10 are computed directly from the raw decisions and
-    are always available (no label leakage — uses previous-patch WR).
+    Critical: for LambdaMART ranking, a feature must VARY across
+    candidates within the same decision group.  If every candidate
+    gets the same value (e.g. team-level defaults from empty MVs),
+    the feature contributes zero ranking signal.
+
+    Features 0-7  MV-dependent — may return constants when tables empty.
+    Features 8-10 Hero priors — VARY per candidate by hero_id.
+    Features 11-14 Attribute/draft-context — VARY per candidate by attr.
+    Features 15-16 Draft position — same across all candidates in group,
+                  included as weak group-level signal.
 
     Feature order must match FEATURE_SPEC_VERSION in feature_specs.py.
     """
@@ -675,16 +762,24 @@ def compute_features(
     if len(result) < before:
         print(f"Imputed team IDs for {before - len(result)} rows (should not happen with fillna)")
 
-    # MV-dependent features (may use defaults when MVs empty)
+    # MV-dependent features (may use defaults when MVs empty).
+    # These are mostly constant across candidates unless MVs are populated.
     result = _features_team(result, mvs)
     result = _features_synergy(result, mvs)
     result = _features_counter(result, mvs)
-    result = _features_hero_meta(result, mvs)
+    result = _features_hero_meta(result, mvs)    # adds hero_meta_primary_attr
     result = _features_player_comfort(result, mvs, engine)
     result = _features_star_threat(result, mvs, engine)
 
-    # MV-independent features (always available, no label leakage)
-    result = _features_historical_hero_wr(result, raw_decisions)
+    # ── Per-candidate features (VARY across heroes — real ranking signal) ──
+    # hero_priors: pick-rate, wr, popularity — computed from raw decisions.
+    result = _features_hero_priors(result, raw_decisions)
+
+    # attr_diversity: attribute flags + fit score.
+    # Must run AFTER _features_hero_meta (needs hero_meta_primary_attr).
+    result = _features_attr_diversity(result)
+
+    # draft context: position features (same per group, weak signal).
     result = _features_draft(result)
 
     return result

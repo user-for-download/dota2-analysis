@@ -10,7 +10,7 @@ import (
 )
 
 // FeatureSpecVersion is the current version identifier for the feature spec.
-const FeatureSpecVersion = "2025-11-15"
+const FeatureSpecVersion = "2026-05-26"
 
 // FeatureSource computes one feature dimension for a set of candidate heroes.
 // Each source produces exactly one float64 value per hero.
