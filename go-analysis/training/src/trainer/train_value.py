@@ -5,28 +5,27 @@ import numpy as np
 import pandas as pd
 from datetime import datetime, timezone
 from trainer.config import Settings
-from trainer.feature_specs import FEATURE_SPEC_VERSION, FEATURES
-from trainer.features import compute_features
+from trainer.feature_specs import FEATURE_SPEC_VERSION
 
 
 def run(settings: Settings):
     """Train the value model.
 
     Binary classification: predicts whether the acting team wins
-    given a draft decision. Uses the full feature set defined in
-    feature_specs.py (team picks, win rates, synergies, counters,
-    meta attributes, player comfort, star threat).
+    given a draft decision. Uses hero_id as a simplified feature
+    for now.
+
+    TODO: Replace with full 8-feature vector from feature_specs.py
+    once features.compute_features() is implemented.
 
     Used to complement the imitation model in the combined
     recommendation scorer.
     """
     decisions = pd.read_parquet(settings.artifact_dir / "decisions.parquet")
 
-    # Compute features if not already present (extract.py may pass through).
-    decisions = compute_features(decisions, settings)
-
-    # Build feature matrix from the canonical feature spec
-    feature_cols = [f["name"] for f in FEATURES]
+    # Simplified: use hero_id as the only feature for now.
+    # TODO: Replace with full 8-feature vector from feature_specs.py.
+    feature_cols = ["hero_id"]
 
     # Split by match_id (rows within a match are correlated).
     match_ids = decisions["match_id"].unique()
@@ -37,10 +36,10 @@ def run(settings: Settings):
     train_df = decisions[decisions["match_id"].isin(match_ids[:split_idx])]
     val_df = decisions[decisions["match_id"].isin(match_ids[split_idx:])]
 
-    X_train = train_df[feature_cols].values
-    y_train = train_df["acting_won"].astype(int).values
-    X_val = val_df[feature_cols].values
-    y_val = val_df["acting_won"].astype(int).values
+    X_train = train_df[feature_cols].values.astype(float)
+    y_train = train_df["value_label"].values
+    X_val = val_df[feature_cols].values.astype(float)
+    y_val = val_df["value_label"].values
 
     train_data = lgb.Dataset(X_train, label=y_train, feature_name=feature_cols)
     val_data = lgb.Dataset(X_val, label=y_val, feature_name=feature_cols, reference=train_data)
