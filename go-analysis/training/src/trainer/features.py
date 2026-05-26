@@ -6,6 +6,20 @@ from trainer.config import Settings
 from trainer.db import get_engine
 
 
+def _refresh_mvs(engine):
+    """Refresh all analytics materialized views so data is current."""
+    mvs = [
+        "mv_team_hero_profile",
+        "mv_hero_synergy",
+        "mv_hero_counter",
+        "mv_player_team_history",
+        "mv_player_hero_profile",
+    ]
+    for mv in mvs:
+        print(f"  Refreshing analytics.{mv}...")
+        engine.execute(text(f"REFRESH MATERIALIZED VIEW analytics.{mv}"))
+
+
 def _load_mvs(engine) -> dict[str, pd.DataFrame]:
     """Load all materialized views and reference tables into DataFrames."""
     team_hero = pd.read_sql(
@@ -346,9 +360,21 @@ def compute_features(candidates: pd.DataFrame, settings: Settings) -> pd.DataFra
     Missing MV data defaults to 0 (counts) or 0.5 (win rates).
     """
     engine = get_engine(settings)
+
+    # Refresh MVs before reading — they're created WITH NO DATA and
+    # stale if the migration hasn't been refreshed recently.
+    print("Refreshing materialized views...")
+    _refresh_mvs(engine)
+
     mvs = _load_mvs(engine)
 
     result = candidates.copy()
+
+    # Drop rows where team IDs are NULL — can't compute features.
+    before = len(result)
+    result = result.dropna(subset=["acting_team", "opp_team"])
+    if len(result) < before:
+        print(f"Dropped {before - len(result)} rows with missing team IDs")
     result = _features_team(result, mvs)
     result = _features_synergy(result, mvs)
     result = _features_counter(result, mvs)
