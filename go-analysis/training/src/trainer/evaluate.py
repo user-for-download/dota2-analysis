@@ -1,11 +1,4 @@
 """Evaluate trained models.
-
-NOTE: Recall@5 is inflated to ~1.0 until candidate generation is
-implemented (candidates.py). Without negative samples (unpicked heroes
-with label=0), every row in the dataframe is a pick, so a random subset
-of 5 out of 10 picks almost always overlaps with the 10 chosen heroes.
-Implement candidates.generate_candidates() to produce unpicked heroes
-and fix this evaluation metric.
 """
 import json
 import pandas as pd
@@ -18,7 +11,9 @@ def run(settings: Settings):
     """Evaluate the imitation model.
 
     Computes Recall@K per match: for each match, checks whether the
-    actually chosen hero appears in the model's top-K predictions.
+    actually chosen hero (label=1.0) appears in the model's top-K predictions.
+    Negative samples (label=0.0 from candidate generation) are excluded from
+    the relevance check but included in the ranking pool.
     """
     decisions = pd.read_parquet(settings.artifact_dir / "decisions.parquet")
 
@@ -28,13 +23,13 @@ def run(settings: Settings):
     X = decisions[["hero_id"]].values.astype(float)
     predictions = booster.predict(X)
 
-    # Compute Recall@5 per match
+    # Compute Recall@5 per match — only positive samples are "chosen"
     recall_at_5 = []
     for match_id, group in decisions.groupby("match_id"):
         preds = predictions[group.index]
-        chosen = group["hero_id"].values
+        chosen = group.loc[group["label"] == 1.0, "hero_id"].values
         top5 = group.iloc[np.argsort(preds)[-5:]]["hero_id"].values
-        hit = any(h in top5 for h in chosen)
+        hit = any(h in top5 for h in chosen) if len(chosen) > 0 else False
         recall_at_5.append(int(hit))
 
     avg_recall = np.mean(recall_at_5) if recall_at_5 else 0.0

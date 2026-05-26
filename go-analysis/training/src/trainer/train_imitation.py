@@ -4,10 +4,11 @@ import lightgbm as lgb
 import numpy as np
 import pandas as pd
 from datetime import datetime, timezone
+from sqlalchemy import text
 from trainer.config import Settings
 from trainer.feature_specs import FEATURE_SPEC_VERSION
-from trainer.labels import imitation_labels
 from trainer.candidates import generate_candidates
+from trainer.db import get_engine
 
 
 def run(settings: Settings):
@@ -19,11 +20,17 @@ def run(settings: Settings):
     """
     decisions = pd.read_parquet(settings.artifact_dir / "decisions.parquet")
 
-    # Ensure labels are present (defense-in-depth; extract.py should already add them).
-    if "label" not in decisions.columns:
-        all_heroes = decisions["hero_id"].unique().tolist()
-        decisions = generate_candidates(decisions, all_heroes)
-        decisions = imitation_labels(decisions)
+    # Fetch all known hero IDs for candidate generation.
+    engine = get_engine(settings)
+    hero_df = pd.read_sql(
+        text("SELECT DISTINCT hero_id FROM public.heroes ORDER BY hero_id"),
+        engine,
+    )
+    all_heroes = hero_df["hero_id"].tolist()
+
+    # Generate negative samples (unpicked heroes with label=0).
+    print("Generating candidates...")
+    decisions = generate_candidates(decisions, all_heroes)
 
     # Simplified: use hero_id as the only feature for now.
     # Full implementation uses the 8-feature vector from feature_specs.py.
