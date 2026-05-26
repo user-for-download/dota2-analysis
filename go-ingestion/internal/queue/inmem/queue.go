@@ -28,23 +28,26 @@ func New(policy queue.RetryPolicy) *Queue {
 	}
 }
 
-var _ queue.Queue = (*Queue)(nil)
 var _ queue.Publisher = (*Queue)(nil)
 var _ queue.Subscriber = (*Queue)(nil)
 
-// Publish implements queue.Publisher.  Delegates to Push.
-func (q *Queue) Publish(ctx context.Context, payload []byte) error {
-	return q.Push(ctx, payload)
-}
-
-func (q *Queue) Push(_ context.Context, payload []byte) error {
+// Publish implements queue.Publisher.
+func (q *Queue) Publish(ctx context.Context, msg queue.Message) error {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	q.pending = append(q.pending, queue.Task{
-		ID:      q.nextID(),
-		Payload: append([]byte(nil), payload...),
+		Message: queue.Message{
+			ID:      q.nextID(),
+			Payload: append([]byte(nil), msg.Payload...),
+			Headers: msg.Headers,
+		},
 	})
 	return nil
+}
+
+// Push is a convenience wrapper for tests — creates a Message from raw bytes.
+func (q *Queue) Push(ctx context.Context, payload []byte) error {
+	return q.Publish(ctx, queue.Message{Payload: payload})
 }
 
 func (q *Queue) Pop(ctx context.Context, batch int, block time.Duration) ([]queue.Task, error) {
@@ -140,8 +143,7 @@ func (q *Queue) Subscribe(ctx context.Context, handler queue.Handler) error {
 			continue
 		}
 		for _, t := range tasks {
-			msg := queue.Message{ID: t.ID, Payload: t.Payload}
-			handlerErr := handler(ctx, msg)
+			handlerErr := handler(ctx, t.Message)
 			switch {
 			case handlerErr == nil:
 				_ = q.Ack(ctx, t.ID)

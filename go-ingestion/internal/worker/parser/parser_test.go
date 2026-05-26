@@ -20,7 +20,7 @@ import (
 
 // msgFromTask converts a queue.Task to a queue.Message for testing handlers.
 func msgFromTask(t queue.Task) queue.Message {
-	return queue.Message{ID: t.ID, Payload: t.Payload}
+	return t.Message
 }
 
 type fakeIngester struct {
@@ -55,7 +55,7 @@ func newParser(t *testing.T, ing *fakeIngester) (*Parser, *queueinmem.Queue, *pa
 	return p, q, store, sink
 }
 
-func pushTask(t *testing.T, q queue.Queue, matchID int64) {
+func pushTask(t *testing.T, q *queueinmem.Queue, matchID int64) {
 	t.Helper()
 	b, _ := json.Marshal(Task{MatchID: matchID})
 	if err := q.Push(context.Background(), b); err != nil {

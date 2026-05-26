@@ -18,13 +18,6 @@ import (
 	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/worker"
 )
 
-// latencyAdapter adapts metrics.Sink to redisstreams.LatencySink.
-type latencyAdapter struct{ m metrics.Sink }
-
-func (a *latencyAdapter) RecordLatency(ctx context.Context, stage string, ms float64) {
-	a.m.RecordLatency(ctx, metrics.Stage(stage), ms)
-}
-
 type Task struct {
 	MatchID int64 `json:"match_id"`
 }
@@ -138,7 +131,7 @@ func (f *Fetcher) handleMessage(ctx context.Context, msg queue.Message) error {
 		f.m.FetchFailure(ctx, metrics.KindDecode)
 		return fmt.Errorf("marshal parse task: %w", err)
 	}
-	if err := f.out.Publish(ctx, next); err != nil {
+	if err := f.out.Publish(ctx, queue.Message{Payload: next}); err != nil {
 		f.m.FetchFailure(ctx, metrics.KindUnknown)
 		_ = f.store.ExtendTTL(ctx, key, 2*time.Hour)
 		return fmt.Errorf("out-queue: %w", err)

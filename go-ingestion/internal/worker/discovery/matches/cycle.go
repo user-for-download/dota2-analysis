@@ -127,7 +127,7 @@ func (c *Cycle) RunOnce(ctx context.Context) error {
 			c.log.Warn("marshal task", "match_id", id, "err", err)
 			continue
 		}
-		if err := c.out.Publish(ctx, payload); err != nil {
+		if err := c.out.Publish(ctx, queue.Message{Payload: payload}); err != nil {
 			return fmt.Errorf("queue publish failed at match_id %d: %w", id, err)
 		}
 		pushed++

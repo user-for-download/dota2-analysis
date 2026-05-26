@@ -59,7 +59,7 @@ func TestRedisStreamsRoundTrip(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	if err := q.Push(ctx, []byte("hello")); err != nil {
+	if err := q.Publish(ctx, queue.Message{Payload: []byte("hello")}); err != nil {
 		t.Fatalf("Push: %v", err)
 	}
 
@@ -86,7 +86,7 @@ func TestRedisStreamsRetryToDLQ(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	if err := q.Push(ctx, []byte("doomed")); err != nil {
+	if err := q.Publish(ctx, queue.Message{Payload: []byte("doomed")}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -116,7 +116,7 @@ func TestRedisStreamsRecoverStale(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	if err := q.Push(ctx, []byte("stale")); err != nil {
+	if err := q.Publish(ctx, queue.Message{Payload: []byte("stale")}); err != nil {
 		t.Fatal(err)
 	}
 

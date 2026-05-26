@@ -12,7 +12,9 @@ import (
 
 	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/bootstrap"
 	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/config"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/proxy"
 	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/proxy/loader"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/proxy/redisproxy"
 )
 
 func main() {
@@ -20,6 +22,9 @@ func main() {
 
 	cfg, err := config.Load("")
 	must(log, "config", err)
+
+	// Load proxy-specific config from its own domain — breaks coupling to the god-config.
+	proxyCfg := proxy.LoadConfig()
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -40,34 +45,50 @@ func main() {
 	defer deps.Close()
 	rdb := deps.Redis.Master()
 
-	pool, err := bootstrap.ProxyPool(rdb, cfg.Proxy, log)
+	// Create the proxy pool directly from the local proxy config, bypassing the
+	// global bootstrap to break the dependency on config.ProxyConfig.
+	pool, err := redisproxy.New(rdb, redisproxy.Config{
+		KeyPrefix: proxyCfg.KeyPrefix,
+		RateLimit: proxy.RateLimit{
+			RatePerSec: proxyCfg.RateLimitPerSec,
+			Burst:      proxyCfg.RateLimitBurst,
+			Window:     proxyCfg.RateLimitWindow,
+		},
+		Ranking: proxy.Ranking{
+			InitialWeight:  proxyCfg.RankingInitial,
+			SuccessBoost:   proxyCfg.RankingSuccess,
+			FailurePenalty: proxyCfg.RankingFailure,
+		},
+		MaxFailures: proxyCfg.MaxFailures,
+		Logger:      log,
+	})
 	must(log, "proxy pool", err)
 
-	seedPath := cfg.Proxy.SeedFile
+	seedPath := proxyCfg.SeedFile
 	if seedPath == "" {
 		seedPath = "proxy.txt"
 	}
-	canary := cfg.Proxy.CanaryURL
+	canary := proxyCfg.CanaryURL
 	if canary == "" {
 		canary = "https://api.ipify.org"
 	}
 
 	seed := loader.FileSource{Path: seedPath}
 	var remote loader.Source
-	if cfg.Proxy.RemoteURL != "" {
+	if proxyCfg.RemoteURL != "" {
 		remote = loader.HTTPSource{
-			URL:    cfg.Proxy.RemoteURL,
+			URL:    proxyCfg.RemoteURL,
 			Client: &http.Client{Timeout: 15 * time.Second},
 		}
 	}
 
-	minPoolSize := int64(cfg.Proxy.MinPoolSize)
+	minPoolSize := int64(proxyCfg.MinPoolSize)
 	if minPoolSize <= 0 {
 		minPoolSize = 20
 	}
 
 	// top-up interval: check pool size, reload only when below threshold
-	topUpInterval := cfg.Proxy.RefreshInterval
+	topUpInterval := proxyCfg.RefreshInterval
 
 	// force-refresh interval: unconditional full reload to evict degraded proxies.
 	// Reads PROXY_FORCE_REFRESH_INTERVAL; defaults to 1h. Set to 0 to disable.
@@ -78,11 +99,11 @@ func main() {
 		Remote: remote,
 		Validate: loader.Validator{
 			CanaryURL: canary,
-			Timeout:   cfg.Proxy.ValidateTimeout,
+			Timeout:   proxyCfg.ValidateTimeout,
 		},
-		Parallel:   cfg.Proxy.ValidateParallel,
-		ChunkSize:  cfg.Proxy.ValidateChunkSize,
-		MinPublish: cfg.Proxy.ValidateMinPublish,
+		Parallel:   proxyCfg.ValidateParallel,
+		ChunkSize:  proxyCfg.ValidateChunkSize,
+		MinPublish: proxyCfg.ValidateMinPublish,
 		Logger:     log,
 	})
 	must(log, "loader", err)

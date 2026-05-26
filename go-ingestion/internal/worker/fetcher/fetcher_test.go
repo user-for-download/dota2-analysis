@@ -21,7 +21,7 @@ import (
 
 // msgFromTask converts a queue.Task to a queue.Message for testing handlers.
 func msgFromTask(t queue.Task) queue.Message {
-	return queue.Message{ID: t.ID, Payload: t.Payload}
+	return t.Message
 }
 
 type fakeDoer struct {
@@ -69,7 +69,7 @@ func newFetcher(t *testing.T) (*Fetcher, *queueinmem.Queue, *queueinmem.Queue, *
 	return f, in, out, store, sink, doer
 }
 
-func pushFetchTask(t *testing.T, q queue.Queue, matchID int64) {
+func pushFetchTask(t *testing.T, q *queueinmem.Queue, matchID int64) {
 	t.Helper()
 	b, _ := json.Marshal(Task{MatchID: matchID})
 	if err := q.Push(context.Background(), b); err != nil {

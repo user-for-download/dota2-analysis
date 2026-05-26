@@ -7,81 +7,52 @@ import (
 	"time"
 )
 
+var (
+	ErrEmpty = errors.New("queue: no tasks available")
+	ErrDrop  = errors.New("queue: drop message")
+)
+
 // ──────────────────────────────────────────────
-// Task — internal queue message with lifecycle state
+// Primitives
 // ──────────────────────────────────────────────
 
+// Message is the standard primitive for all queue operations.
+// Headers allow transport-agnostic metadata (like tracing) without coupling.
+type Message struct {
+	ID      string
+	Payload []byte
+	Headers map[string]string
+}
+
+// Task represents an internal queue item with lifecycle state.
+// Used by implementations, but hidden from the Subscriber handler.
 type Task struct {
-	ID         string
-	Payload    []byte
+	Message
 	RetryCount int
-	Ctx        context.Context
-}
-
-var ErrEmpty = errors.New("queue: no tasks available")
-
-// ──────────────────────────────────────────────
-// Legacy Queue interface (7 methods) — still supported for
-// backward compatibility. Prefer Publisher / Subscriber below.
-// ──────────────────────────────────────────────
-
-type Queue interface {
-	Push(ctx context.Context, payload []byte) error
-	Pop(ctx context.Context, batch int, block time.Duration) ([]Task, error)
-	Ack(ctx context.Context, taskID string) error
-	Retry(ctx context.Context, t Task, reason string) error
-	RecoverStale(ctx context.Context, idleFor time.Duration, max int) ([]Task, error)
-	StreamLen() int64
-	InFlightLen() int64
-}
-
-type QueueStats struct {
-	StreamLen int64
-	InFlight  int64
-}
-
-type QueueObservable interface {
-	Queue
-	Stats(ctx context.Context) (QueueStats, error)
 }
 
 // ──────────────────────────────────────────────
-// Publisher / Subscriber / PubSub — minimal interfaces per Interface Segregation
+// Interfaces (Black Box Boundaries)
 // ──────────────────────────────────────────────
 
-// Publisher enqueues a payload for asynchronous processing.
 type Publisher interface {
-	Publish(ctx context.Context, payload []byte) error
+	Publish(ctx context.Context, msg Message) error
 }
 
-// PubSub combines Publisher and Subscriber for components that need both roles.
+type Handler func(ctx context.Context, msg Message) error
+
+type Subscriber interface {
+	Subscribe(ctx context.Context, handler Handler) error
+}
+
 type PubSub interface {
 	Publisher
 	Subscriber
 }
 
-// Message is delivered to a Handler. It carries only the data the
-// handler needs — no retry-count or internal lifecycle state.
-type Message struct {
-	ID      string
-	Payload []byte
-}
-
-// ErrDrop signals that a message should be acknowledged and dropped
-// (not retried). Return it from a Handler for permanent failures.
-var ErrDrop = errors.New("queue: drop message")
-
-// Handler processes a single Message.  Return nil to ACK, ErrDrop to
-// acknowledge without retry, or any other error to retry (with backoff
-// and eventual DLQ).
-type Handler func(ctx context.Context, msg Message) error
-
-// Subscriber receives messages and manages the full lifecycle:
-// polling, acknowledgement, retries, backpressure, stale recovery,
-// and dead-letter queuing.
-type Subscriber interface {
-	Subscribe(ctx context.Context, handler Handler) error
-}
+// ──────────────────────────────────────────────
+// Retry Logic
+// ──────────────────────────────────────────────
 
 type RetryPolicy struct {
 	MaxRetries int

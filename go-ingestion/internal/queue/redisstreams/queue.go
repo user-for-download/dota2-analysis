@@ -12,20 +12,9 @@ import (
 	"time"
 
 	goredis "github.com/redis/go-redis/v9"
-	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
-	"go.opentelemetry.io/otel/propagation"
-	"go.opentelemetry.io/otel/trace"
 
 	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/queue"
 )
-
-// LatencySink records per-message processing latency.
-// Pass a minimal adapter from the consumer; avoids importing the full metrics package.
-type LatencySink interface {
-	RecordLatency(ctx context.Context, stage string, durationMs float64)
-}
 
 type AsyncRetryConfig struct {
 	ZSetKey    string
@@ -48,8 +37,6 @@ type Config struct {
 	SubscribeBatch   int           // Pop batch size (default 10)
 	SubscribeBlock   time.Duration // Pop block duration (default 2s)
 	SubscribeRecover bool          // run periodic stale-recovery goroutine
-	SubscribeStage   string        // stage label for latency metric
-	LatencySink      LatencySink   // records per-message latency
 }
 
 const (
@@ -87,7 +74,6 @@ type Queue struct {
 	cfg           Config
 	log           *slog.Logger
 	recoverCursor string
-	propagator    propagation.TextMapPropagator
 	asyncCfg      AsyncRetryConfig
 	asyncStopCh   chan struct{}
 	asyncStarted  bool
@@ -110,7 +96,6 @@ func New(rdb *goredis.Client, cfg Config) (*Queue, error) {
 		cfg:           cfg,
 		log:           log.With("queue", cfg.Stream),
 		recoverCursor: "0-0",
-		propagator:    otel.GetTextMapPropagator(),
 	}
 
 	if cfg.Consumer != "" && cfg.Group != "" {
@@ -122,8 +107,6 @@ func New(rdb *goredis.Client, cfg Config) (*Queue, error) {
 	return q, nil
 }
 
-var _ queue.Queue = (*Queue)(nil)
-var _ queue.QueueObservable = (*Queue)(nil)
 var _ queue.Publisher = (*Queue)(nil)
 var _ queue.Subscriber = (*Queue)(nil)
 
@@ -135,22 +118,17 @@ func (q *Queue) ensureGroup(ctx context.Context) error {
 	return fmt.Errorf("xgroup create: %w", err)
 }
 
-// Publish implements queue.Publisher.  Delegates to Push.
-func (q *Queue) Publish(ctx context.Context, payload []byte) error {
-	return q.Push(ctx, payload)
-}
-
-func (q *Queue) Push(ctx context.Context, payload []byte) error {
-	cp := append([]byte(nil), payload...)
+// Publish implements queue.Publisher.
+func (q *Queue) Publish(ctx context.Context, msg queue.Message) error {
+	cp := append([]byte(nil), msg.Payload...)
 	values := map[string]any{
 		fieldPayload: cp,
 		fieldRetry:   "0",
 	}
 
-	carrier := propagation.MapCarrier{}
-	q.propagator.Inject(ctx, carrier)
-	for k, v := range carrier {
-		values["_otel_"+k] = v
+	// Map headers to Redis fields using an 'h:' prefix to prevent collisions
+	for k, v := range msg.Headers {
+		values["h:"+k] = v
 	}
 
 	args := &goredis.XAddArgs{
@@ -193,10 +171,10 @@ func (q *Queue) Pop(ctx context.Context, batch int, block time.Duration) ([]queu
 
 	out := make([]queue.Task, 0, len(res[0].Messages))
 	for _, msg := range res[0].Messages {
-		t, err := decodeMessage(msg, q.propagator)
+		t, err := decodeMessage(msg)
 		if err != nil {
 			q.log.Warn("decode failed; routing to DLQ", "id", msg.ID, "err", err)
-			if dlqErr := q.routeDLQ(ctx, queue.Task{ID: msg.ID}, "decode_error: "+err.Error()); dlqErr != nil {
+			if dlqErr := q.routeDLQ(ctx, queue.Task{Message: queue.Message{ID: msg.ID}}, "decode_error: "+err.Error()); dlqErr != nil {
 				q.log.Error("DLQ routing failed; message remains pending (will retry)",
 					"id", msg.ID, "dlq_err", dlqErr,
 				)
@@ -349,10 +327,10 @@ func (q *Queue) RecoverStale(ctx context.Context, idleFor time.Duration, max int
 	}
 	out := make([]queue.Task, 0, len(res))
 	for _, msg := range res {
-		t, err := decodeMessage(msg, q.propagator)
+		t, err := decodeMessage(msg)
 		if err != nil {
 			q.log.Warn("decode failed during recover; routing to DLQ", "id", msg.ID, "err", err)
-			if dlqErr := q.routeDLQ(ctx, queue.Task{ID: msg.ID}, "decode_error: "+err.Error()); dlqErr != nil {
+			if dlqErr := q.routeDLQ(ctx, queue.Task{Message: queue.Message{ID: msg.ID}}, "decode_error: "+err.Error()); dlqErr != nil {
 				q.log.Error("DLQ routing failed during recover; message remains pending",
 					"id", msg.ID, "dlq_err", dlqErr,
 				)
@@ -364,9 +342,10 @@ func (q *Queue) RecoverStale(ctx context.Context, idleFor time.Duration, max int
 	return out, nil
 }
 
-func decodeMessage(msg goredis.XMessage, propagator propagation.TextMapPropagator) (queue.Task, error) {
+func decodeMessage(msg goredis.XMessage) (queue.Task, error) {
 	var t queue.Task
 	t.ID = msg.ID
+	t.Headers = make(map[string]string)
 
 	rawPayload, ok := msg.Values[fieldPayload]
 	if !ok {
@@ -389,15 +368,14 @@ func decodeMessage(msg goredis.XMessage, propagator propagation.TextMapPropagato
 		}
 	}
 
-	carrier := propagation.MapCarrier{}
+	// Extract headers with 'h:' prefix
 	for k, v := range msg.Values {
-		if strings.HasPrefix(k, "_otel_") {
+		if strings.HasPrefix(k, "h:") {
 			if strVal, ok := v.(string); ok {
-				carrier[strings.TrimPrefix(k, "_otel_")] = strVal
+				t.Headers[strings.TrimPrefix(k, "h:")] = strVal
 			}
 		}
 	}
-	t.Ctx = propagator.Extract(context.Background(), carrier)
 
 	return t, nil
 }
@@ -433,15 +411,8 @@ func (q *Queue) InFlightLen() int64 {
 	return n.Count
 }
 
-func (q *Queue) Stats(ctx context.Context) (queue.QueueStats, error) {
-	return queue.QueueStats{
-		StreamLen: q.StreamLen(),
-		InFlight:  q.InFlightLen(),
-	}, nil
-}
-
 // Subscribe implements queue.Subscriber.  It runs the Pop → handle → Ack/Retry
-// loop, handles backpressure, stale recovery, OTel tracing, and panic recovery.
+// loop, handles backpressure, stale recovery, and panic recovery.
 // Blocks until ctx is cancelled or a terminal error occurs.
 func (q *Queue) Subscribe(ctx context.Context, handler queue.Handler) error {
 	batch := q.cfg.SubscribeBatch
@@ -456,7 +427,6 @@ func (q *Queue) Subscribe(ctx context.Context, handler queue.Handler) error {
 	baseBlock := block
 
 	log := q.log.With("component", "redisstreams.subscriber")
-	tracer := otel.Tracer("redisstreams")
 
 	// Start stale recovery if configured
 	if q.cfg.SubscribeRecover {
@@ -493,20 +463,7 @@ func (q *Queue) Subscribe(ctx context.Context, handler queue.Handler) error {
 				}
 			}
 
-			spanCtx := t.Ctx
-			if spanCtx == nil {
-				spanCtx = ctx
-			}
-
-			spanCtx, span := tracer.Start(spanCtx, "subscriber.process",
-				trace.WithAttributes(
-					attribute.String("task.id", t.ID),
-					attribute.Int("task.retry_count", t.RetryCount),
-				),
-			)
-			start := time.Now()
-
-			msg := queue.Message{ID: t.ID, Payload: t.Payload}
+			// Just call the handler directly. Decorator handles tracing.
 			var handlerErr error
 			func() {
 				defer func() {
@@ -514,25 +471,11 @@ func (q *Queue) Subscribe(ctx context.Context, handler queue.Handler) error {
 						handlerErr = fmt.Errorf("handler panic: %v", r)
 					}
 				}()
-				handlerErr = handler(spanCtx, msg)
+				handlerErr = handler(ctx, t.Message)
 			}()
 
-			if q.cfg.LatencySink != nil {
-				q.cfg.LatencySink.RecordLatency(spanCtx, q.cfg.SubscribeStage, float64(time.Since(start).Milliseconds()))
-			}
-
-			if handlerErr != nil {
-				span.RecordError(handlerErr)
-				span.SetStatus(codes.Error, handlerErr.Error())
-			} else {
-				span.SetStatus(codes.Ok, "success")
-			}
-			span.End()
-
 			switch {
-			case handlerErr == nil:
-				_ = q.Ack(ctx, t.ID)
-			case errors.Is(handlerErr, queue.ErrDrop):
+			case handlerErr == nil, errors.Is(handlerErr, queue.ErrDrop):
 				_ = q.Ack(ctx, t.ID)
 			default:
 				_ = q.Retry(ctx, t, handlerErr.Error())
@@ -563,7 +506,7 @@ func (q *Queue) staleRecoveryLoop(ctx context.Context) {
 			dropped := 0
 			for _, t := range tasks {
 				payload := withRetryCount(t.Payload, t.RetryCount)
-				if err := q.Push(ctx, payload); err != nil {
+				if err := q.Publish(ctx, queue.Message{Payload: payload}); err != nil {
 					log.Warn("stale re-enqueue failed", "id", t.ID, "err", err)
 					dropped++
 					continue
