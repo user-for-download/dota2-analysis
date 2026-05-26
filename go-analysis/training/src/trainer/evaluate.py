@@ -24,7 +24,7 @@ def run(settings: Settings):
     recall_at_5 = []
     for match_id, group in decisions.groupby("match_id"):
         preds = predictions[group.index]
-        chosen = group["chosen_hero"].values
+        chosen = group["hero_id"].values
         top5 = group.iloc[np.argsort(preds)[-5:]]["hero_id"].values
         hit = any(h in top5 for h in chosen)
         recall_at_5.append(int(hit))

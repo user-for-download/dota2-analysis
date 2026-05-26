@@ -14,7 +14,7 @@ WITH decisions AS (
         m.patch_id,
         pb.ord AS slot,
         pb.is_pick,
-        pb.hero_id AS chosen_hero,
+        pb.hero_id,
         CASE WHEN pb.team = 0 THEN m.radiant_team_id
              ELSE m.dire_team_id END AS acting_team,
         CASE WHEN pb.team = 0 THEN m.dire_team_id
