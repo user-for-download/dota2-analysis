@@ -46,6 +46,10 @@ func (s *Store) IngestMatch(ctx context.Context, m domain.Match) error {
 			return err
 		}
 
+		if err := s.upsertTeamMatches(ctx, tx, m); err != nil {
+			return err
+		}
+
 		if err := s.upsertPlayers(ctx, tx, m); err != nil {
 			return err
 		}

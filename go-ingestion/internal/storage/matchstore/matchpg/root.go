@@ -53,6 +53,44 @@ func (s *Store) upsertMatchRoot(ctx context.Context, tx pgx.Tx, m domain.Match) 
 	return n > 0, nil
 }
 
+func (s *Store) upsertTeamMatches(ctx context.Context, tx pgx.Tx, m domain.Match) error {
+	if m.RadiantTeamID == 0 && m.DireTeamID == 0 {
+		return nil
+	}
+
+	const q = `
+		INSERT INTO team_matches (
+			team_id, match_id, start_time, is_radiant, win, leagueid
+		) VALUES (
+			$1, $2, $3, $4, $5, $6
+		) ON CONFLICT (team_id, match_id) DO UPDATE SET
+			start_time = EXCLUDED.start_time,
+			is_radiant = EXCLUDED.is_radiant,
+			win = EXCLUDED.win,
+			leagueid = EXCLUDED.leagueid
+	`
+
+	if m.RadiantTeamID != 0 {
+		_, err := tx.Exec(ctx, q,
+			int64(m.RadiantTeamID), int64(m.MatchID), m.StartTime, true, m.RadiantWin, nullIf0_32(m.LeagueID),
+		)
+		if err != nil {
+			return fmt.Errorf("insert team_matches radiant: %w", err)
+		}
+	}
+
+	if m.DireTeamID != 0 {
+		_, err := tx.Exec(ctx, q,
+			int64(m.DireTeamID), int64(m.MatchID), m.StartTime, false, !m.RadiantWin, nullIf0_32(m.LeagueID),
+		)
+		if err != nil {
+			return fmt.Errorf("insert team_matches dire: %w", err)
+		}
+	}
+
+	return nil
+}
+
 func (s *Store) upsertAdvantages(ctx context.Context, tx pgx.Tx, m domain.Match) error {
 	if m.Advantages == nil {
 		return nil
