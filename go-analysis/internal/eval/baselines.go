@@ -127,9 +127,12 @@ func (b *PlayerComfortBaseline) ScoreWithRoster(ctx context.Context, roster []do
 		var heroID int16
 		var wr float64
 		if err := rows.Scan(&heroID, &wr); err != nil {
-			continue
+			return nil, fmt.Errorf("scan comfort: %w", err)
 		}
 		scores[domain.HeroID(heroID)] = wr
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate comfort: %w", err)
 	}
 
 	out := make([]domain.Score, len(candidates))

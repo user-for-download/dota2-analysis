@@ -83,7 +83,15 @@ func (cb *CircuitBreaker) RecordSuccess() {
 		return
 	}
 	if state == circuitClosed {
-		cb.failures.Add(-1)
+		for {
+			cur := cb.failures.Load()
+			if cur <= 0 {
+				break
+			}
+			if cb.failures.CompareAndSwap(cur, cur-1) {
+				break
+			}
+		}
 	}
 }
 

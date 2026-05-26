@@ -2,6 +2,7 @@ package lookuppg
 
 import (
 	"context"
+	"errors"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -68,7 +69,7 @@ func (s *Store) PatchByTimestamp(ctx context.Context, unixSec int64) (lookupstor
 		WHERE extract(epoch from release_at) <= $1
 		ORDER BY release_at DESC LIMIT 1
 	`, unixSec).Scan(&p.ID, &p.Name, &p.StartedAt)
-	if err == pgx.ErrNoRows {
+	if errors.Is(err, pgx.ErrNoRows) {
 		return p, nil
 	}
 	return p, err

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"time"
@@ -55,11 +56,15 @@ func LoadModel(modelDir string) (*Scorer, error) {
 	}
 
 	if meta.PatchID != 0 {
-		// PatchID embedded in the model; log it so operators can verify
-		// the loaded model matches the expected patch.
-		fmt.Printf("info: model trained for patch %d\n", meta.PatchID)
+		slog.Default().Info("model loaded",
+			"patch_id", meta.PatchID,
+			"version", meta.Version,
+			"trained_at", meta.TrainedAt,
+			"recall_at_5", meta.RecallAt5,
+			"ndcg_at_10", meta.NDCGAt10,
+		)
 	} else {
-		fmt.Printf("info: model loaded (no patch metadata)\n")
+		slog.Default().Info("model loaded (no patch metadata)")
 	}
 
 	return &Scorer{
