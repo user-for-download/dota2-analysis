@@ -3,6 +3,7 @@ import pandas as pd
 from sqlalchemy import text
 from trainer.config import Settings
 from trainer.db import get_engine
+from trainer.labels import imitation_labels, value_labels
 
 # SQL extracts all pick decisions from matches with a league (professional games).
 # Each row = one pick decision with context about which team was acting and outcome.
@@ -36,6 +37,10 @@ def run(settings: Settings):
     """Extract decisions to Parquet."""
     engine = get_engine(settings)
     df = pd.read_sql(SQL, engine, params={"patch_id": settings.patch_id})
+
+    # Apply labels needed by training scripts.
+    df = imitation_labels(df)
+    df = value_labels(df)
 
     out_path = settings.artifact_dir / "decisions.parquet"
     out_path.parent.mkdir(parents=True, exist_ok=True)
