@@ -20,7 +20,7 @@
 x-common-env: &common-env
     APP_ENV: ${APP_ENV:-dev}
     LOG_LEVEL: ${LOG_LEVEL:-debug}
-    ANALYTICS_PATCH_ID: ${ANALYTICS_PATCH_ID:-72}       # single source of truth
+    ANALYTICS_PATCH_ID: ${ANALYTICS_PATCH_ID:-72} # single source of truth
 
 x-common: &common
     restart: unless-stopped
@@ -49,9 +49,9 @@ services:
             - "127.0.0.1:${ANALYSIS_API_PORT:-8080}:8080"
         volumes:
             - ./go-analysis/assets/models:/models:ro
-        depends_on:
-            postgres:
-                condition: service_healthy
+        # depends_on:
+        #     postgres:
+        #         condition: service_healthy
         networks: [dota2-net]
 
     featurizer:
@@ -64,9 +64,9 @@ services:
             <<: *common-env
             POSTGRES_DSN: postgresql://${POSTGRES_USER:-dota2}:${POSTGRES_PASSWORD:-dota2}@postgres:5432/${POSTGRES_DB:-dota2}
             ANALYTICS_FEATURIZER_INTERVAL: ${ANALYTICS_FEATURIZER_INTERVAL:-24h}
-        depends_on:
-            postgres:
-                condition: service_healthy
+        # depends_on:
+        #     postgres:
+        #         condition: service_healthy
         networks: [dota2-net]
 
     backtester:
@@ -83,15 +83,15 @@ services:
             BACKTEST_PATCH_ID: ${BACKTEST_PATCH_ID:-}
         volumes:
             - ./go-analysis/assets/models:/models:ro
-        depends_on:
-            postgres:
-                condition: service_healthy
+        # depends_on:
+        #     postgres:
+        #         condition: service_healthy
         networks: [dota2-net]
 
     trainer:
         build:
-            context: ../../go-analysis/training
-            dockerfile: Dockerfile
+            context: .
+            dockerfile: go-analysis/build/dockerfiles/Dockerfile.trainer
         container_name: dota2-analysis-trainer
         profiles: [training]
         restart: "no"
