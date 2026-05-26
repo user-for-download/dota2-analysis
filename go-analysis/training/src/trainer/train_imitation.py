@@ -23,7 +23,7 @@ def run(settings: Settings):
     # Fetch all known hero IDs for candidate generation.
     engine = get_engine(settings)
     hero_df = pd.read_sql(
-        text("SELECT DISTINCT hero_id FROM public.heroes ORDER BY hero_id"),
+        text("SELECT DISTINCT hero_id FROM public.picks_bans ORDER BY hero_id"),
         engine,
     )
     all_heroes = hero_df["hero_id"].tolist()
