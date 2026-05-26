@@ -1,4 +1,12 @@
-"""Evaluate trained models."""
+"""Evaluate trained models.
+
+NOTE: Recall@5 is inflated to ~1.0 until candidate generation is
+implemented (candidates.py). Without negative samples (unpicked heroes
+with label=0), every row in the dataframe is a pick, so a random subset
+of 5 out of 10 picks almost always overlaps with the 10 chosen heroes.
+Implement candidates.generate_candidates() to produce unpicked heroes
+and fix this evaluation metric.
+"""
 import json
 import pandas as pd
 import lightgbm as lgb

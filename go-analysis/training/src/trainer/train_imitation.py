@@ -6,6 +6,8 @@ import pandas as pd
 from datetime import datetime, timezone
 from trainer.config import Settings
 from trainer.feature_specs import FEATURE_SPEC_VERSION, FEATURES
+from trainer.labels import imitation_labels
+from trainer.candidates import generate_candidates
 
 
 def run(settings: Settings):
@@ -16,6 +18,12 @@ def run(settings: Settings):
     (groups) so that NDCG is computed within each draft context.
     """
     decisions = pd.read_parquet(settings.artifact_dir / "decisions.parquet")
+
+    # Ensure labels are present (defense-in-depth; extract.py should already add them).
+    if "label" not in decisions.columns:
+        all_heroes = decisions["hero_id"].unique().tolist()
+        decisions = generate_candidates(decisions, all_heroes)
+        decisions = imitation_labels(decisions)
 
     # Simplified: use hero_id as the only feature for now.
     # Full implementation uses the 8-feature vector from feature_specs.py.
@@ -38,7 +46,10 @@ def run(settings: Settings):
         "verbose": -1,
     }
 
-    booster = lgb.train(params, train_data)
+    booster = lgb.train(
+        params, train_data,
+        callbacks=[lgb.early_stopping(settings.early_stopping_rounds)],
+    )
 
     # Save model
     out_dir = settings.artifact_dir / "imitation"

@@ -6,6 +6,7 @@ import pandas as pd
 from datetime import datetime, timezone
 from trainer.config import Settings
 from trainer.feature_specs import FEATURE_SPEC_VERSION, FEATURES
+from trainer.features import compute_features
 
 
 def run(settings: Settings):
@@ -20,6 +21,9 @@ def run(settings: Settings):
     recommendation scorer.
     """
     decisions = pd.read_parquet(settings.artifact_dir / "decisions.parquet")
+
+    # Compute features if not already present (extract.py may pass through).
+    decisions = compute_features(decisions, settings)
 
     # Build feature matrix from the canonical feature spec
     feature_cols = [f["name"] for f in FEATURES]
@@ -38,7 +42,10 @@ def run(settings: Settings):
         "verbose": -1,
     }
 
-    booster = lgb.train(params, train_data, valid_sets=[train_data])
+    booster = lgb.train(
+        params, train_data, valid_sets=[train_data],
+        callbacks=[lgb.early_stopping(settings.early_stopping_rounds)],
+    )
 
     out_dir = settings.artifact_dir / "value"
     out_dir.mkdir(parents=True, exist_ok=True)

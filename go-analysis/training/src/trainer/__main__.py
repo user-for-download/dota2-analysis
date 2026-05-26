@@ -53,17 +53,23 @@ def publish(ctx):
 
 @cli.command()
 @click.pass_context
-def all(ctx):
-    """Run full pipeline: extract -> train -> evaluate -> publish."""
+def pipeline(ctx):
+    """Run full pipeline: extract -> quality -> train -> evaluate -> gate -> publish."""
     from trainer.extract import run as extract_run
+    from trainer.quality import run as quality_run
     from trainer.train_imitation import run as train_imit_run
+    from trainer.train_value import run as train_value_run
     from trainer.evaluate import run as eval_run
+    from trainer.gate import run as gate_run
     from trainer.publish import run as publish_run
 
     settings = ctx.obj["settings"]
     extract_run(settings)
+    quality_run(settings)
     train_imit_run(settings)
+    train_value_run(settings)
     eval_run(settings)
+    gate_run(settings)
     publish_run(settings)
 
 
