@@ -6,7 +6,7 @@ import numpy as np
 # Higher = harder ranking task = better learning signal.
 # With ~127 total heroes and ~10 already drafted per match,
 # late-slot decisions will have fewer available heroes — min() handles this.
-_NEGATIVES_PER_SLOT = 50
+_NEGATIVES_PER_SLOT = 30
 
 
 def _available_heroes(

@@ -95,6 +95,7 @@ services:
         container_name: dota2-analysis-trainer
         profiles: [training]
         restart: "no"
+        mem_limit: 4g
         command: pipeline
         env_file: [.env]
         environment:
@@ -106,9 +107,9 @@ services:
         volumes:
             - ./go-analysis/assets/models:/models
             - trainer-artifacts:/app/artifacts
-        depends_on:
-            postgres:
-                condition: service_healthy
+        # depends_on:
+        #     postgres:
+        #         condition: service_healthy
         networks: [dota2-net]
 
 volumes:
