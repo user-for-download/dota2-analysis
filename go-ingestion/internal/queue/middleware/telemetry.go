@@ -10,13 +10,14 @@ import (
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/metrics"
 	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/queue"
 )
 
 // LatencySink abstracts metrics recording so this middleware doesn't depend
 // on a specific metrics implementation.
 type LatencySink interface {
-	RecordLatency(ctx context.Context, stage string, durationMs float64)
+	RecordLatency(ctx context.Context, stage metrics.Stage, durationMs float64)
 }
 
 // ──────────────────────────────────────────────
@@ -55,11 +56,11 @@ type TracedSubscriber struct {
 	next       queue.Subscriber
 	propagator propagation.TextMapPropagator
 	tracer     trace.Tracer
-	stage      string
+	stage      metrics.Stage
 	metrics    LatencySink
 }
 
-func NewTracedSubscriber(next queue.Subscriber, stage string, metrics LatencySink) *TracedSubscriber {
+func NewTracedSubscriber(next queue.Subscriber, stage metrics.Stage, metrics LatencySink) *TracedSubscriber {
 	return &TracedSubscriber{
 		next:       next,
 		propagator: otel.GetTextMapPropagator(),

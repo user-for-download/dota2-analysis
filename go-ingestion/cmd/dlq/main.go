@@ -19,12 +19,14 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
 	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/bootstrap"
-	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/config"
 	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/dlq"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/queue"
+	storageredis "github.com/user-for-download/dota2-analysis/go-ingestion/internal/storage/redis"
 )
 
 func main() {
@@ -53,13 +55,15 @@ func main() {
 		os.Exit(1)
 	}
 
-	cfg, err := config.Load("")
-	must(log, "config", err)
+	redisCfg := storageredis.LoadConfig()
+	queueCfg := queue.LoadConfig()
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	shutdownTelemetry, err := bootstrap.InitTelemetry(ctx, "go-dota2-dlq", cfg.Telemetry.Endpoint, cfg.Telemetry.SampleRate)
+	shutdownTelemetry, err := bootstrap.InitTelemetry(ctx, "go-dota2-dlq",
+		getEnv("OTEL_EXPORTER_OTLP_ENDPOINT", ""),
+		getEnvFloat("OTEL_SAMPLE_RATE", 1.0))
 	if err != nil {
 		log.Error("init telemetry", "err", err)
 	} else if shutdownTelemetry != nil {
@@ -70,13 +74,13 @@ func main() {
 		}()
 	}
 
-	redisClient, err := bootstrap.RedisClient(cfg.Redis, log)
+	redisClient, err := storageredis.New(redisCfg)
 	must(log, "redis", err)
 	defer redisClient.Close()
 
 	rdb := redisClient.Master()
 
-	dlqStreams := buildStreamList(*streamType, cfg.Queue)
+	dlqStreams := buildStreamList(*streamType, queueCfg)
 	if len(dlqStreams) == 0 {
 		log.Error("no DLQ streams configured")
 		os.Exit(1)
@@ -86,14 +90,14 @@ func main() {
 	case "list":
 		err = dlq.List(ctx, rdb, dlqStreams, *limit, log)
 	case "replay":
-		err = dlq.Replay(ctx, rdb, dlqStreams, cfg.Queue, *limit, *dryRun, log)
+		err = dlq.Replay(ctx, rdb, dlqStreams, queueCfg, *limit, *dryRun, log)
 	case "purge":
 		err = dlq.Purge(ctx, rdb, dlqStreams, *limit, *dryRun, log)
 	}
 	must(log, *action, err)
 }
 
-func buildStreamList(streamType string, qCfg config.QueueConfig) []string {
+func buildStreamList(streamType string, qCfg queue.Config) []string {
 	var streams []string
 	if streamType == "all" || streamType == "fetch" {
 		streams = append(streams, qCfg.FetchDLQStream)
@@ -102,6 +106,22 @@ func buildStreamList(streamType string, qCfg config.QueueConfig) []string {
 		streams = append(streams, qCfg.ParseDLQStream)
 	}
 	return streams
+}
+
+func getEnv(key, def string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return def
+}
+
+func getEnvFloat(key string, def float64) float64 {
+	if v := os.Getenv(key); v != "" {
+		if n, err := strconv.ParseFloat(v, 64); err == nil {
+			return n
+		}
+	}
+	return def
 }
 
 func must(log *slog.Logger, what string, err error) {

@@ -12,7 +12,8 @@ import (
 	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/metrics"
 	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/payload"
 	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/queue"
-	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/worker"
+	"github.com/user-for-download/dota2-analysis/go-core/domain"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/dedup"
 )
 
 type Task struct {
@@ -20,13 +21,14 @@ type Task struct {
 }
 
 type Ingester interface {
-	Ingest(ctx context.Context, m Match) error
+	Ingest(ctx context.Context, m domain.Match) error
 }
 
 type Config struct {
-	Batch  int           // kept for backward compat; Subscribe uses queue defaults
-	Block  time.Duration
-	Logger *slog.Logger
+	Batch                        int           // kept for backward compat; Subscribe uses queue defaults
+	Block                        time.Duration
+	PartitionMaintenanceInterval time.Duration
+	Logger                       *slog.Logger
 }
 
 type Parser struct {
@@ -113,7 +115,7 @@ func (p *Parser) handleMessage(ctx context.Context, msg queue.Message) error {
 	}
 
 	if err := p.ingester.Ingest(ctx, m); err != nil {
-		if errors.Is(err, worker.ErrAlreadySeen) {
+		if errors.Is(err, dedup.ErrAlreadySeen) {
 			p.m.ParseDuplicate(ctx)
 			p.log.Info("match already in database, skipping", "match_id", m.MatchID)
 			if delErr := p.store.Delete(ctx, key); delErr != nil {

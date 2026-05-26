@@ -5,13 +5,13 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/storage/matchstore"
+	"github.com/user-for-download/dota2-analysis/go-core/domain"
 )
 
-func (s *Store) upsertPicksBans(ctx context.Context, tx pgx.Tx, m matchstore.Match) error {
+func (s *Store) upsertPicksBans(ctx context.Context, tx pgx.Tx, m domain.Match) error {
 	var rows [][]any
 	for _, pb := range m.PicksBans {
-		rows = append(rows, []any{m.MatchID, pb.Order, pb.IsPick, pb.HeroID, pb.Team})
+		rows = append(rows, []any{int64(m.MatchID), pb.Order, pb.IsPick, int16(pb.HeroID), pb.Team})
 	}
 
 	cols := []string{"match_id", "ord", "is_pick", "hero_id", "team"}
@@ -19,11 +19,11 @@ func (s *Store) upsertPicksBans(ctx context.Context, tx pgx.Tx, m matchstore.Mat
 	return bulkUpsert(ctx, tx, "_stage_picks_bans", "picks_bans", cols, "ON CONFLICT (match_id, ord) DO NOTHING", rows)
 }
 
-func (s *Store) upsertDraftTimings(ctx context.Context, tx pgx.Tx, m matchstore.Match) error {
+func (s *Store) upsertDraftTimings(ctx context.Context, tx pgx.Tx, m domain.Match) error {
 	var rows [][]any
 	for _, dt := range m.DraftTimings {
 		rows = append(rows, []any{
-			m.MatchID, dt.Order, dt.Pick, dt.ActiveTeam, nullIf0_16(dt.HeroID), dt.PlayerSlot, dt.ExtraTime, dt.TotalTimeTaken,
+			int64(m.MatchID), dt.Order, dt.Pick, dt.ActiveTeam, nullIf0_16(int16(dt.HeroID)), dt.PlayerSlot, dt.ExtraTime, dt.TotalTimeTaken,
 		})
 	}
 

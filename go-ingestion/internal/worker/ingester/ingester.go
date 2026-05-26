@@ -6,10 +6,10 @@ import (
 	"log/slog"
 	"strconv"
 
+	"github.com/user-for-download/dota2-analysis/go-core/domain"
 	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/dedup"
 	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/metrics"
 	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/storage/matchstore"
-	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/worker"
 	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/worker/parser"
 )
 
@@ -46,19 +46,14 @@ func New(repo matchstore.MatchWriter, m metrics.Sink, cfg Config) (*Ingester, er
 
 var _ parser.Ingester = (*Ingester)(nil)
 
-func (i *Ingester) Ingest(ctx context.Context, m matchstore.Match) error {
-	key := strconv.FormatInt(m.MatchID, 10)
-	if i.dedup != nil {
-		if _, err := i.dedup.MarkSeen(ctx, key); err != nil {
-			i.log.Warn("failed to mark match as seen in dedup", "match_id", m.MatchID, "err", err)
-		}
-	}
-
+func (i *Ingester) Ingest(ctx context.Context, m domain.Match) error {
+	// 1. Attempt database ingestion FIRST.
+	// Dedup MarkSeen happens only after a successful DB commit.
 	err := i.repo.IngestMatch(ctx, m)
 	if err != nil {
 		if isDuplicateConstraint(err) {
-			i.m.IngestFailure(ctx, metrics.KindValidate, m.MatchID, err)
-			return worker.ErrAlreadySeen
+			i.m.IngestFailure(ctx, metrics.KindValidate, int64(m.MatchID), err)
+			return dedup.ErrAlreadySeen
 		}
 		kind := classify(err)
 		if kind == metrics.KindValidate {
@@ -67,9 +62,19 @@ func (i *Ingester) Ingest(ctx context.Context, m matchstore.Match) error {
 				i.log.Warn("foreign key violation", "match_id", m.MatchID, "detail", ce.Detail)
 			}
 		}
-		i.m.IngestFailure(ctx, kind, m.MatchID, err)
+		i.m.IngestFailure(ctx, kind, int64(m.MatchID), err)
 		return fmt.Errorf("repo.IngestMatch: %w", err)
 	}
+
+	// 2. Only mark as seen in Redis IF the DB commit succeeded.
+	// This prevents poisoning the Bloom filter on transient DB errors.
+	if i.dedup != nil {
+		key := strconv.FormatInt(int64(m.MatchID), 10)
+		if _, err := i.dedup.MarkSeen(ctx, key); err != nil {
+			i.log.Warn("failed to mark match as seen in dedup", "match_id", m.MatchID, "err", err)
+		}
+	}
+
 	i.m.IngestSuccess(ctx)
 	return nil
 }

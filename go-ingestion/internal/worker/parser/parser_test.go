@@ -10,12 +10,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/user-for-download/dota2-analysis/go-core/domain"
 	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/metrics"
 	metricsinmem "github.com/user-for-download/dota2-analysis/go-ingestion/internal/metrics/inmem"
 	payloadinmem "github.com/user-for-download/dota2-analysis/go-ingestion/internal/payload/inmem"
 	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/queue"
 	queueinmem "github.com/user-for-download/dota2-analysis/go-ingestion/internal/queue/inmem"
-	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/storage/matchstore"
 )
 
 // msgFromTask converts a queue.Task to a queue.Message for testing handlers.
@@ -25,11 +25,11 @@ func msgFromTask(t queue.Task) queue.Message {
 
 type fakeIngester struct {
 	mu      sync.Mutex
-	matches []matchstore.Match
+	matches []domain.Match
 	err     error
 }
 
-func (f *fakeIngester) Ingest(_ context.Context, m matchstore.Match) error {
+func (f *fakeIngester) Ingest(_ context.Context, m domain.Match) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.err != nil {

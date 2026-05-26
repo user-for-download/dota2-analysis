@@ -7,10 +7,11 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/config"
+
+	coreconfig "github.com/user-for-download/dota2-analysis/go-core/config"
 )
 
-func WaitForPostgres(ctx context.Context, cfg config.PostgresConfig, wait WaitConfig, log *slog.Logger) (*pgxpool.Pool, error) {
+func WaitForPostgres(ctx context.Context, cfg coreconfig.PostgresConfig, wait WaitConfig, log *slog.Logger) (*pgxpool.Pool, error) {
 	if wait.PollInterval <= 0 {
 		wait.PollInterval = 30 * time.Second
 	}

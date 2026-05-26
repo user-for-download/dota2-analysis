@@ -3,12 +3,7 @@ package parser
 import (
 	"encoding/json"
 	"math"
-
-	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/storage/matchstore"
 )
-
-// Match is an alias for the matchstore type.
-type Match = matchstore.Match
 
 // ─── Raw JSON types ────────────────────────────────────────
 

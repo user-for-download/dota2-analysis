@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -14,22 +15,17 @@ import (
 	"github.com/user-for-download/dota2-analysis/go-core/schema"
 
 	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/bootstrap"
-	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/config"
 )
 
 func main() {
 	log := bootstrap.NewLogger(slog.NewJSONHandler(os.Stdout, nil))
 
-	cfg, err := config.Load("")
-	if err != nil {
-		log.Error("config", "err", err)
-		os.Exit(1)
-	}
-
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	shutdownTelemetry, err := bootstrap.InitTelemetry(ctx, "go-dota2-migrator", cfg.Telemetry.Endpoint, cfg.Telemetry.SampleRate)
+	shutdownTelemetry, err := bootstrap.InitTelemetry(ctx, "go-dota2-migrator",
+		getEnv("OTEL_EXPORTER_OTLP_ENDPOINT", ""),
+		getEnvFloat("OTEL_SAMPLE_RATE", 1.0))
 	if err != nil {
 		log.Error("init telemetry", "err", err)
 	} else if shutdownTelemetry != nil {
@@ -40,7 +36,7 @@ func main() {
 		}()
 	}
 
-	dsn := cfg.Migrator.DSN
+	dsn := getEnv("MIGRATOR_DSN", "")
 	if dsn == "" {
 		dsn = fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
 			getEnv("POSTGRES_HOST", "postgres"),
@@ -66,6 +62,15 @@ func main() {
 		log.Error("migration failed", "err", err)
 		os.Exit(1)
 	}
+}
+
+func getEnvFloat(key string, def float64) float64 {
+	if v := os.Getenv(key); v != "" {
+		if n, err := strconv.ParseFloat(v, 64); err == nil {
+			return n
+		}
+	}
+	return def
 }
 
 func getEnv(k, def string) string {

@@ -5,24 +5,24 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/storage/matchstore"
+	"github.com/user-for-download/dota2-analysis/go-core/domain"
 )
 
-func (s *Store) upsertPlayers(ctx context.Context, tx pgx.Tx, m matchstore.Match) error {
+func (s *Store) upsertPlayers(ctx context.Context, tx pgx.Tx, m domain.Match) error {
 	var rows [][]any
 	for _, p := range m.Players {
 		rows = append(rows, []any{
-			m.MatchID, p.PlayerSlot, m.StartTime, nullIf0_64(p.AccountID),
-			p.HeroID, p.HeroVariant, p.IsRadiant, p.Win, m.Duration,
-			nullIf0_32(p.PatchID), p.LobbyType, p.GameMode, p.RankTier,
+			int64(m.MatchID), p.PlayerSlot, m.StartTime, nullIf0_64(int64(p.AccountID)),
+			int16(p.HeroID), p.HeroVariant, p.IsRadiant, p.Win, m.Duration,
+			int32(p.PatchID), p.LobbyType, p.GameMode, p.RankTier,
 			p.Kills, p.Deaths, p.Assists, p.Level, p.NetWorth,
 			p.Gold, p.GoldSpent, p.GoldPerMin, p.XPPerMin,
 			p.LastHits, p.Denies, p.HeroDamage, p.TowerDamage, p.HeroHealing,
 			p.Item0, p.Item1, p.Item2, p.Item3, p.Item4, p.Item5, p.ItemNeutral,
 			p.Backpack0, p.Backpack1, p.Backpack2, p.Backpack3,
-			p.Lane, p.LaneRole, p.IsRoaming, nullIf0_32(p.PartyID), p.PartySize,
-			nullIf0_f32(p.Stuns), p.ObsPlaced, p.SenPlaced, p.CreepsStacked, p.CampsStacked,
-			p.RunePickups, p.FirstbloodClaimed, nullIf0_f32(p.TeamfightParticipation),
+			p.Lane, p.LaneRole, p.IsRoaming, p.PartyID, p.PartySize,
+			p.Stuns, p.ObsPlaced, p.SenPlaced, p.CreepsStacked, p.CampsStacked,
+			p.RunePickups, p.FirstbloodClaimed, p.TeamfightParticipation,
 			p.TowersKilled, p.RoshansKilled, p.ObserversPlaced, p.LeaverStatus,
 			p.GoldT, p.XPT, p.LHT, p.DNT, p.Times,
 			p.ThrowGold, p.ComebackGold, p.LossGold, p.WinGold,
@@ -49,11 +49,11 @@ func (s *Store) upsertPlayers(ctx context.Context, tx pgx.Tx, m matchstore.Match
 	return bulkUpsert(ctx, tx, "_stage_players", "player_matches", cols, "ON CONFLICT (match_id, player_slot, start_time) DO NOTHING", rows)
 }
 
-func (s *Store) upsertPlayerDetails(ctx context.Context, tx pgx.Tx, m matchstore.Match) error {
+func (s *Store) upsertPlayerDetails(ctx context.Context, tx pgx.Tx, m domain.Match) error {
 	var rows [][]any
 	for _, pd := range m.Details {
 		rows = append(rows, []any{
-			m.MatchID, pd.PlayerSlot,
+			int64(m.MatchID), pd.PlayerSlot,
 			jsonbOrNull(pd.Damage), jsonbOrNull(pd.DamageTaken), jsonbOrNull(pd.DamageInflictor), jsonbOrNull(pd.DamageInflictorReceived),
 			jsonbOrNull(pd.DamageTargets), jsonbOrNull(pd.HeroHits), jsonbOrNull(pd.MaxHeroHit),
 			jsonbOrNull(pd.AbilityUses), jsonbOrNull(pd.AbilityTargets), jsonbOrNull(pd.AbilityUpgradesArr),
@@ -86,11 +86,11 @@ func (s *Store) upsertPlayerDetails(ctx context.Context, tx pgx.Tx, m matchstore
 	return bulkUpsert(ctx, tx, "_stage_player_details", "player_match_details", cols, "ON CONFLICT (match_id, player_slot) DO NOTHING", rows)
 }
 
-func (s *Store) upsertTimeseries(ctx context.Context, tx pgx.Tx, m matchstore.Match) error {
+func (s *Store) upsertTimeseries(ctx context.Context, tx pgx.Tx, m domain.Match) error {
 	var rows [][]any
 	for _, ts := range m.Timeseries {
 		rows = append(rows, []any{
-			m.MatchID, ts.PlayerSlot, m.StartTime, ts.Minute, ts.HeroID, nullIf0_64(ts.AccountID), nullIf0_32(ts.PatchID),
+			int64(m.MatchID), ts.PlayerSlot, m.StartTime, ts.Minute, int16(ts.HeroID), nullIf0_64(int64(ts.AccountID)), int32(ts.PatchID),
 			ts.Gold, ts.XP, ts.LH, ts.DN,
 		})
 	}

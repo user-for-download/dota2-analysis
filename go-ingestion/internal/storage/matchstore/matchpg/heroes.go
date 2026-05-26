@@ -5,34 +5,37 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/storage/matchstore"
+	"github.com/user-for-download/dota2-analysis/go-core/domain"
 )
 
-func collectHeroIDs(m matchstore.Match) []int16 {
+func collectHeroIDs(m domain.Match) []int16 {
 	seen := make(map[int16]struct{})
 	var ids []int16
 
 	for _, p := range m.Players {
-		if p.HeroID != 0 {
-			if _, ok := seen[p.HeroID]; !ok {
-				seen[p.HeroID] = struct{}{}
-				ids = append(ids, p.HeroID)
+		h := int16(p.HeroID)
+		if h != 0 {
+			if _, ok := seen[h]; !ok {
+				seen[h] = struct{}{}
+				ids = append(ids, h)
 			}
 		}
 	}
 	for _, pb := range m.PicksBans {
-		if pb.HeroID != 0 {
-			if _, ok := seen[pb.HeroID]; !ok {
-				seen[pb.HeroID] = struct{}{}
-				ids = append(ids, pb.HeroID)
+		h := int16(pb.HeroID)
+		if h != 0 {
+			if _, ok := seen[h]; !ok {
+				seen[h] = struct{}{}
+				ids = append(ids, h)
 			}
 		}
 	}
 	for _, dt := range m.DraftTimings {
-		if dt.HeroID != 0 {
-			if _, ok := seen[dt.HeroID]; !ok {
-				seen[dt.HeroID] = struct{}{}
-				ids = append(ids, dt.HeroID)
+		h := int16(dt.HeroID)
+		if h != 0 {
+			if _, ok := seen[h]; !ok {
+				seen[h] = struct{}{}
+				ids = append(ids, h)
 			}
 		}
 	}

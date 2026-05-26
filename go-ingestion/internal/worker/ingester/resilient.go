@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/storage/matchstore"
-	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/worker"
+	"github.com/user-for-download/dota2-analysis/go-core/domain"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/resilience"
 	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/worker/parser"
 )
 
@@ -15,11 +15,11 @@ import (
 // resilience concerns live in a separate, composable layer.
 type ResilientIngester struct {
 	next parser.Ingester
-	cb   *worker.CircuitBreaker
+	cb   *resilience.CircuitBreaker
 	log  *slog.Logger
 }
 
-func NewResilient(next parser.Ingester, cb *worker.CircuitBreaker, log *slog.Logger) *ResilientIngester {
+func NewResilient(next parser.Ingester, cb *resilience.CircuitBreaker, log *slog.Logger) *ResilientIngester {
 	if log == nil {
 		log = slog.Default()
 	}
@@ -30,7 +30,7 @@ func NewResilient(next parser.Ingester, cb *worker.CircuitBreaker, log *slog.Log
 	}
 }
 
-func (r *ResilientIngester) Ingest(ctx context.Context, m matchstore.Match) error {
+func (r *ResilientIngester) Ingest(ctx context.Context, m domain.Match) error {
 	if r.cb != nil && !r.cb.Allow() {
 		r.log.Warn("circuit breaker open; rejecting ingest", "match_id", m.MatchID)
 		r.cb.RecordFailure()

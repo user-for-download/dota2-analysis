@@ -74,3 +74,4 @@ tools/prc.json
 # ─── IDE / Tooling ───
 .opencode
 .zed
+.tmp/

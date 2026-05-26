@@ -6,10 +6,10 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/storage/matchstore"
+	"github.com/user-for-download/dota2-analysis/go-core/domain"
 )
 
-func (s *Store) upsertMatchRoot(ctx context.Context, tx pgx.Tx, m matchstore.Match) (bool, error) {
+func (s *Store) upsertMatchRoot(ctx context.Context, tx pgx.Tx, m domain.Match) (bool, error) {
 	const q = `
 		INSERT INTO matches (
 			match_id, match_seq_num, start_time, duration, radiant_win,
@@ -39,12 +39,12 @@ func (s *Store) upsertMatchRoot(ctx context.Context, tx pgx.Tx, m matchstore.Mat
 		WHERE matches.is_parsed = FALSE OR EXCLUDED.is_parsed = TRUE`
 
 	res, err := tx.Exec(ctx, q,
-		m.MatchID, nullIf0_64(m.MatchSeqNum), m.StartTime, m.Duration, m.RadiantWin,
+		int64(m.MatchID), nullIf0_64(m.MatchSeqNum), m.StartTime, m.Duration, m.RadiantWin,
 		m.TowerStatusRadiant, m.TowerStatusDire, m.BarracksStatusRadiant, m.BarracksStatusDire,
 		m.RadiantScore, m.DireScore, m.FirstBloodTime, m.LobbyType, m.GameMode, m.Cluster, m.Region, m.Skill, m.Engine,
-		m.HumanPlayers, m.Version, nullIf0_32(m.PatchID), m.PositiveVotes, m.NegativeVotes,
-		nullIf0_32(m.LeagueID), nullIf0_32(m.SeriesID), m.SeriesType, nullIf0_64(m.RadiantTeamID), nullIf0_64(m.DireTeamID), nullIf0_64(m.RadiantCaptain), nullIf0_64(m.DireCaptain),
-		nullIf0_64(m.ReplaySalt), nullIfStr(m.ReplayURL), jsonbOrNull(m.Pauses), m.IsParsed,
+		m.HumanPlayers, m.Version, int32(m.PatchID), m.PositiveVotes, m.NegativeVotes,
+		m.LeagueID, m.SeriesID, m.SeriesType, int64(m.RadiantTeamID), int64(m.DireTeamID), int64(m.RadiantCaptain), int64(m.DireCaptain),
+		int64(m.ReplaySalt), nullIfStr(m.ReplayURL), jsonbOrNull([]byte(m.Pauses)), m.IsParsed,
 	)
 	if err != nil {
 		return false, fmt.Errorf("insert matches: %w", err)
@@ -53,24 +53,24 @@ func (s *Store) upsertMatchRoot(ctx context.Context, tx pgx.Tx, m matchstore.Mat
 	return n > 0, nil
 }
 
-func (s *Store) upsertAdvantages(ctx context.Context, tx pgx.Tx, m matchstore.Match) error {
+func (s *Store) upsertAdvantages(ctx context.Context, tx pgx.Tx, m domain.Match) error {
 	if m.Advantages == nil {
 		return nil
 	}
 	_, err := tx.Exec(ctx, `
 		INSERT INTO match_advantages (match_id, radiant_gold_adv, radiant_xp_adv) VALUES ($1, $2, $3)
 		ON CONFLICT (match_id) DO UPDATE SET radiant_gold_adv = EXCLUDED.radiant_gold_adv, radiant_xp_adv = EXCLUDED.radiant_xp_adv
-	`, m.MatchID, m.Advantages.RadiantGoldAdv, m.Advantages.RadiantXPAdv)
+	`, int64(m.MatchID), m.Advantages.RadiantGoldAdv, m.Advantages.RadiantXPAdv)
 	return err
 }
 
-func (s *Store) upsertCosmetics(ctx context.Context, tx pgx.Tx, m matchstore.Match) error {
+func (s *Store) upsertCosmetics(ctx context.Context, tx pgx.Tx, m domain.Match) error {
 	if len(m.Cosmetics) == 0 {
 		return nil
 	}
 	_, err := tx.Exec(ctx, `
 		INSERT INTO match_cosmetics (match_id, cosmetics) VALUES ($1, $2::jsonb)
 		ON CONFLICT (match_id) DO UPDATE SET cosmetics = EXCLUDED.cosmetics
-	`, m.MatchID, m.Cosmetics)
+	`, int64(m.MatchID), []byte(m.Cosmetics))
 	return err
 }

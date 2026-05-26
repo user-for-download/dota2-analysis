@@ -4,21 +4,21 @@ import (
 	"encoding/json"
 	"strconv"
 
-	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/storage/matchstore"
+	"github.com/user-for-download/dota2-analysis/go-core/domain"
 )
 
-func decodeObjectives(raw []rawObjective) []matchstore.ObjectiveRow {
+func decodeObjectives(raw []rawObjective) []domain.Objective {
 	if len(raw) == 0 {
 		return nil
 	}
-	rows := make([]matchstore.ObjectiveRow, 0, len(raw))
+	rows := make([]domain.Objective, 0, len(raw))
 	for _, o := range raw {
 		rawJSON, _ := json.Marshal(o)
 		keyStr := ""
 		if k := objectiveKeyAsString(o.Key); k != nil {
 			keyStr = *k
 		}
-		rows = append(rows, matchstore.ObjectiveRow{
+		rows = append(rows, domain.Objective{
 			Time:       o.Time,
 			Type:       o.Type,
 			Slot:       deref16(o.Slot),
@@ -33,13 +33,13 @@ func decodeObjectives(raw []rawObjective) []matchstore.ObjectiveRow {
 	return rows
 }
 
-func decodeChat(raw []rawChat) []matchstore.ChatRow {
+func decodeChat(raw []rawChat) []domain.Chat {
 	if len(raw) == 0 {
 		return nil
 	}
-	rows := make([]matchstore.ChatRow, 0, len(raw))
+	rows := make([]domain.Chat, 0, len(raw))
 	for _, c := range raw {
-		rows = append(rows, matchstore.ChatRow{
+		rows = append(rows, domain.Chat{
 			Time:       c.Time,
 			Type:       derefStr(c.Type),
 			PlayerSlot: deref16(c.PlayerSlot),
@@ -50,13 +50,13 @@ func decodeChat(raw []rawChat) []matchstore.ChatRow {
 	return rows
 }
 
-func decodeTeamfights(raw []rawTeamfight) []matchstore.TeamfightRow {
+func decodeTeamfights(raw []rawTeamfight) []domain.Teamfight {
 	if len(raw) == 0 {
 		return nil
 	}
-	rows := make([]matchstore.TeamfightRow, 0, len(raw))
+	rows := make([]domain.Teamfight, 0, len(raw))
 	for _, t := range raw {
-		rows = append(rows, matchstore.TeamfightRow{
+		rows = append(rows, domain.Teamfight{
 			EndTime:   t.End,
 			LastDeath: deref32(t.LastDeath),
 			Deaths:    deref16(t.Deaths),
@@ -66,11 +66,11 @@ func decodeTeamfights(raw []rawTeamfight) []matchstore.TeamfightRow {
 	return rows
 }
 
-func decodeAdvantages(gold, xp []int32) *matchstore.AdvantagesRow {
+func decodeAdvantages(gold, xp []int32) *domain.Advantages {
 	if len(gold) == 0 && len(xp) == 0 {
 		return nil
 	}
-	return &matchstore.AdvantagesRow{
+	return &domain.Advantages{
 		RadiantGoldAdv: gold,
 		RadiantXPAdv:   xp,
 	}

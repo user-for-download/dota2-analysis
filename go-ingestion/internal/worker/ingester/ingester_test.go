@@ -9,25 +9,26 @@ import (
 
 	"github.com/jackc/pgx/v5/pgconn"
 
+	"github.com/user-for-download/dota2-analysis/go-core/domain"
 	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/metrics"
 	metricsinmem "github.com/user-for-download/dota2-analysis/go-ingestion/internal/metrics/inmem"
 	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/storage/matchstore"
 )
 
-// matchWithID is a test helper to create a Match with just the identity set.
-func matchWithID(id int64) matchstore.Match {
-	return matchstore.Match{
-		MatchIdentity: matchstore.MatchIdentity{MatchID: id},
+// matchWithID is a test helper to create a domain.Match with just the identity set.
+func matchWithID(id int64) domain.Match {
+	return domain.Match{
+		MatchIdentity: domain.MatchIdentity{MatchID: domain.MatchID(id)},
 	}
 }
 
 type fakeRepo struct {
 	mu      sync.Mutex
-	ingests []matchstore.Match
+	ingests []domain.Match
 	err     error
 }
 
-func (r *fakeRepo) IngestMatch(_ context.Context, m matchstore.Match) error {
+func (r *fakeRepo) IngestMatch(_ context.Context, m domain.Match) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.err != nil {

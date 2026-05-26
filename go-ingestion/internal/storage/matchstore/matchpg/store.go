@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/user-for-download/dota2-analysis/go-core/domain"
 	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/storage/matchstore"
 )
 
@@ -26,7 +27,7 @@ func NewStore(db *pgxpool.Pool, log *slog.Logger) *Store {
 var _ matchstore.MatchWriter = (*Store)(nil)
 var _ matchstore.MatchReader = (*Store)(nil)
 
-func (s *Store) IngestMatch(ctx context.Context, m matchstore.Match) error {
+func (s *Store) IngestMatch(ctx context.Context, m domain.Match) error {
 	if m.MatchID == 0 || m.StartTime == 0 {
 		return fmt.Errorf("match: id and start_time required")
 	}
@@ -36,7 +37,7 @@ func (s *Store) IngestMatch(ctx context.Context, m matchstore.Match) error {
 		if len(heroIDs) > 0 {
 			if err := s.ensureHeroStubs(ctx, tx, heroIDs); err != nil {
 				s.log.Warn("ensure_hero_stubs failed, triggers will handle missing heroes",
-					"match_id", m.MatchID, "err", err)
+					"match_id", int64(m.MatchID), "err", err)
 			}
 		}
 
@@ -84,7 +85,7 @@ func (s *Store) IngestMatch(ctx context.Context, m matchstore.Match) error {
 	if err != nil {
 		return err
 	}
-	s.log.Info("match ingested", "match_id", m.MatchID, "parsed", m.IsParsed)
+	s.log.Info("match ingested", "match_id", int64(m.MatchID), "parsed", m.IsParsed)
 	return nil
 }
 

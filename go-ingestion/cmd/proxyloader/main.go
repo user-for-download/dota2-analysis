@@ -7,29 +7,31 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
 	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/bootstrap"
-	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/config"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/metrics/otelmetrics"
 	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/proxy"
 	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/proxy/loader"
 	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/proxy/redisproxy"
+	storageredis "github.com/user-for-download/dota2-analysis/go-ingestion/internal/storage/redis"
 )
 
 func main() {
 	log := bootstrap.NewLogger(slog.NewJSONHandler(os.Stdout, nil))
 
-	cfg, err := config.Load("")
-	must(log, "config", err)
-
-	// Load proxy-specific config from its own domain — breaks coupling to the god-config.
+	// Load domain-specific configs directly — no god-config needed.
+	redisCfg := storageredis.LoadConfig()
 	proxyCfg := proxy.LoadConfig()
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	shutdownTelemetry, err := bootstrap.InitTelemetry(ctx, "go-dota2-proxyloader", cfg.Telemetry.Endpoint, cfg.Telemetry.SampleRate)
+	shutdownTelemetry, err := bootstrap.InitTelemetry(ctx, "go-dota2-proxyloader",
+		getEnv("OTEL_EXPORTER_OTLP_ENDPOINT", ""),
+		getEnvFloat("OTEL_SAMPLE_RATE", 1.0))
 	if err != nil {
 		log.Error("init telemetry", "err", err)
 	} else if shutdownTelemetry != nil {
@@ -40,10 +42,15 @@ func main() {
 		}()
 	}
 
-	deps, err := bootstrap.Core(cfg, log)
-	must(log, "core", err)
-	defer deps.Close()
-	rdb := deps.Redis.Master()
+	redisClient, err := storageredis.New(redisCfg)
+	must(log, "redis", err)
+	defer redisClient.Close()
+	rdb := redisClient.Master()
+
+	// Metrics sink for proxy operations.
+	m, err := otelmetrics.New()
+	must(log, "otelmetrics", err)
+	_ = m // available for future use
 
 	// Create the proxy pool directly from the local proxy config, bypassing the
 	// global bootstrap to break the dependency on config.ProxyConfig.
@@ -191,6 +198,22 @@ func main() {
 			}
 		}
 	}
+}
+
+func getEnv(key, def string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return def
+}
+
+func getEnvFloat(key string, def float64) float64 {
+	if v := os.Getenv(key); v != "" {
+		if n, err := strconv.ParseFloat(v, 64); err == nil {
+			return n
+		}
+	}
+	return def
 }
 
 // getEnvDuration reads a duration from an environment variable.

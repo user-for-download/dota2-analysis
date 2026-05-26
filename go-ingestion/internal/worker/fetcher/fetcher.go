@@ -131,7 +131,9 @@ func (f *Fetcher) handleMessage(ctx context.Context, msg queue.Message) error {
 		f.m.FetchFailure(ctx, metrics.KindDecode)
 		return fmt.Errorf("marshal parse task: %w", err)
 	}
-	if err := f.out.Publish(ctx, queue.Message{Payload: next}); err != nil {
+
+	// Pass the headers forward to preserve OpenTelemetry tracing.
+	if err := f.out.Publish(ctx, queue.Message{Payload: next, Headers: msg.Headers}); err != nil {
 		f.m.FetchFailure(ctx, metrics.KindUnknown)
 		_ = f.store.ExtendTTL(ctx, key, 2*time.Hour)
 		return fmt.Errorf("out-queue: %w", err)

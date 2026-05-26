@@ -6,10 +6,10 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/storage/matchstore"
+	"github.com/user-for-download/dota2-analysis/go-core/domain"
 )
 
-func (s *Store) replaceObjectives(ctx context.Context, tx pgx.Tx, m matchstore.Match) error {
+func (s *Store) replaceObjectives(ctx context.Context, tx pgx.Tx, m domain.Match) error {
 	if len(m.Objectives) == 0 {
 		return nil
 	}
@@ -26,9 +26,9 @@ func (s *Store) replaceObjectives(ctx context.Context, tx pgx.Tx, m matchstore.M
 	rows := make([][]any, 0, len(m.Objectives))
 	for _, o := range m.Objectives {
 		rows = append(rows, []any{
-			m.MatchID, m.StartTime, o.Time, o.Type,
+			int64(m.MatchID), m.StartTime, o.Time, o.Type,
 			o.Slot, o.PlayerSlot, o.Team, nullIfStr(o.Key), o.Value, nullIfStr(o.Unit),
-			jsonbOrNull(o.Raw),
+			jsonbOrNull([]byte(o.Raw)),
 		})
 	}
 
@@ -47,7 +47,7 @@ func (s *Store) replaceObjectives(ctx context.Context, tx pgx.Tx, m matchstore.M
 	return nil
 }
 
-func (s *Store) replaceChat(ctx context.Context, tx pgx.Tx, m matchstore.Match) error {
+func (s *Store) replaceChat(ctx context.Context, tx pgx.Tx, m domain.Match) error {
 	if len(m.Chat) == 0 {
 		return nil
 	}
@@ -64,7 +64,7 @@ func (s *Store) replaceChat(ctx context.Context, tx pgx.Tx, m matchstore.Match) 
 	rows := make([][]any, 0, len(m.Chat))
 	for _, c := range m.Chat {
 		rows = append(rows, []any{
-			m.MatchID, m.StartTime, c.Time, nullIfStr(c.Type), c.PlayerSlot, nullIfStr(c.Unit), nullIfStr(c.Key),
+			int64(m.MatchID), m.StartTime, c.Time, nullIfStr(c.Type), c.PlayerSlot, nullIfStr(c.Unit), nullIfStr(c.Key),
 		})
 	}
 
@@ -82,7 +82,7 @@ func (s *Store) replaceChat(ctx context.Context, tx pgx.Tx, m matchstore.Match) 
 	return nil
 }
 
-func (s *Store) replaceTeamfights(ctx context.Context, tx pgx.Tx, m matchstore.Match) error {
+func (s *Store) replaceTeamfights(ctx context.Context, tx pgx.Tx, m domain.Match) error {
 	if len(m.Teamfights) == 0 {
 		return nil
 	}
@@ -99,8 +99,8 @@ func (s *Store) replaceTeamfights(ctx context.Context, tx pgx.Tx, m matchstore.M
 	rows := make([][]any, 0, len(m.Teamfights))
 	for _, tf := range m.Teamfights {
 		rows = append(rows, []any{
-			m.MatchID, m.StartTime, tf.EndTime, nullIf0_32(tf.LastDeath), nullIf0_16(tf.Deaths),
-			jsonbOrNull(tf.Players),
+			int64(m.MatchID), m.StartTime, tf.EndTime, tf.LastDeath, tf.Deaths,
+			jsonbOrNull([]byte(tf.Players)),
 		})
 	}
 

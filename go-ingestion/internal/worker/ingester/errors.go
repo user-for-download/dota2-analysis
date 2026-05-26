@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/worker"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/dedup"
 )
 
 type DBConstraintError struct {
@@ -49,5 +49,5 @@ func IsValidation(err error) bool {
 func (e *DBConstraintError) IsForeignKey() bool { return e.Code == "23503" }
 
 func IsAlreadySeen(err error) bool {
-	return errors.Is(err, worker.ErrAlreadySeen)
+	return errors.Is(err, dedup.ErrAlreadySeen)
 }

@@ -1,12 +1,12 @@
 package parser
 
 import (
-	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/storage/matchstore"
+	"github.com/user-for-download/dota2-analysis/go-core/domain"
 )
 
-func decodePlayers(raw []rawPlayer) ([]matchstore.PlayerRow, []matchstore.PlayerDetailRow) {
-	players := make([]matchstore.PlayerRow, 0, len(raw))
-	details := make([]matchstore.PlayerDetailRow, 0, len(raw))
+func decodePlayers(raw []rawPlayer) ([]domain.Player, []domain.PlayerDetail) {
+	players := make([]domain.Player, 0, len(raw))
+	details := make([]domain.PlayerDetail, 0, len(raw))
 	for _, rp := range raw {
 		players = append(players, convertPlayer(rp))
 		details = append(details, convertPlayerDetail(rp))
@@ -14,7 +14,7 @@ func decodePlayers(raw []rawPlayer) ([]matchstore.PlayerRow, []matchstore.Player
 	return players, details
 }
 
-func convertPlayer(rp rawPlayer) matchstore.PlayerRow {
+func convertPlayer(rp rawPlayer) domain.Player {
 	win := false
 	if rp.Win != nil {
 		win = *rp.Win == 1
@@ -28,14 +28,14 @@ func convertPlayer(rp rawPlayer) matchstore.PlayerRow {
 		firstblood = *b
 	}
 
-	return matchstore.PlayerRow{
+	return domain.Player{
 		PlayerSlot:              rp.PlayerSlot,
-		AccountID:               deref64(rp.AccountID),
-		HeroID:                  rp.HeroID,
+		AccountID:               domain.AccountID(deref64(rp.AccountID)),
+		HeroID:                  domain.HeroID(rp.HeroID),
 		HeroVariant:             deref16(rp.HeroVariant),
 		IsRadiant:               isRadiant,
 		Win:                     win,
-		PatchID:                 deref32(rp.PatchID),
+		PatchID:                 domain.PatchID(deref32(rp.PatchID)),
 		LobbyType:               deref16(rp.LobbyType),
 		GameMode:                deref16(rp.GameMode),
 		RankTier:                deref16(rp.RankTier),
@@ -93,8 +93,8 @@ func convertPlayer(rp rawPlayer) matchstore.PlayerRow {
 	}
 }
 
-func convertPlayerDetail(rp rawPlayer) matchstore.PlayerDetailRow {
-	return matchstore.PlayerDetailRow{
+func convertPlayerDetail(rp rawPlayer) domain.PlayerDetail {
+	return domain.PlayerDetail{
 		PlayerSlot:              rp.PlayerSlot,
 		Damage:                  rp.Damage,
 		DamageTaken:             rp.DamageTaken,
@@ -141,8 +141,8 @@ func convertPlayerDetail(rp rawPlayer) matchstore.PlayerDetailRow {
 	}
 }
 
-func expandTimeseries(players []rawPlayer) []matchstore.TimeseriesRow {
-	out := make([]matchstore.TimeseriesRow, 0, len(players)*60)
+func expandTimeseries(players []rawPlayer) []domain.TimeseriesRow {
+	out := make([]domain.TimeseriesRow, 0, len(players)*60)
 	for _, p := range players {
 		maxMin := len(p.Times)
 		if maxMin == 0 {
@@ -170,12 +170,12 @@ func expandTimeseries(players []rawPlayer) []matchstore.TimeseriesRow {
 			if gold == nil && xp == nil && lh == nil && dn == nil {
 				continue
 			}
-			out = append(out, matchstore.TimeseriesRow{
+			out = append(out, domain.TimeseriesRow{
 				PlayerSlot: p.PlayerSlot,
 				Minute:     int16(min),
-				HeroID:     p.HeroID,
-				AccountID:  deref64(p.AccountID),
-				PatchID:    deref32(p.PatchID),
+				HeroID:     domain.HeroID(p.HeroID),
+				AccountID:  domain.AccountID(deref64(p.AccountID)),
+				PatchID:    domain.PatchID(deref32(p.PatchID)),
 				Gold:       deref32(gold),
 				XP:         deref32(xp),
 				LH:         deref16(lh),

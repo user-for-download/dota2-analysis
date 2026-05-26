@@ -1,10 +1,13 @@
 package matchstore
 
-import "context"
+import (
+	"context"
+	"github.com/user-for-download/dota2-analysis/go-core/domain"
+)
 
 // MatchWriter persists a full match to the datastore.
 type MatchWriter interface {
-	IngestMatch(ctx context.Context, m Match) error
+	IngestMatch(ctx context.Context, m domain.Match) error
 }
 
 // MatchReader queries match-level metadata.

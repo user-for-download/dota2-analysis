@@ -14,7 +14,7 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
-	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/config"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/queue"
 )
 
 // luaReplayAtomic is a Lua script for atomic XAdd + XDel.
@@ -60,7 +60,7 @@ func List(ctx context.Context, rdb *redis.Client, streams []string, limit int, l
 
 // Replay atomically copies DLQ messages back to their original streams and
 // removes them from the DLQ. Uses a Lua script for atomicity.
-func Replay(ctx context.Context, rdb *redis.Client, dlqStreams []string, qCfg config.QueueConfig, limit int, dryRun bool, log *slog.Logger) error {
+func Replay(ctx context.Context, rdb *redis.Client, dlqStreams []string, qCfg queue.Config, limit int, dryRun bool, log *slog.Logger) error {
 	mapping := map[string]string{
 		qCfg.FetchDLQStream: qCfg.FetchStream,
 		qCfg.ParseDLQStream: qCfg.ParseStream,

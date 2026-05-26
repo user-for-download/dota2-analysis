@@ -216,18 +216,28 @@ func (q *Queue) Retry(ctx context.Context, t queue.Task, reason string) error {
 	return q.requeue(ctx, t)
 }
 
+// asyncEnvelope is a deterministic envelope that preserves the full task
+// state (payload, headers, retry count) across the async ZSet round-trip.
+// Without this wrapper, Headers (which carry OTel trace context) are silently
+// dropped, breaking distributed traces on retry.
+type asyncEnvelope struct {
+	Payload    []byte            `json:"p"`
+	Headers    map[string]string `json:"h,omitempty"`
+	RetryCount int               `json:"r"`
+}
+
 func (q *Queue) scheduleAsyncRetry(ctx context.Context, t queue.Task) error {
 	if q.asyncCfg.MaxRetries > 0 && t.RetryCount > q.asyncCfg.MaxRetries {
 		return q.routeDLQ(ctx, t, "max retries exceeded")
 	}
 
-	var raw map[string]any
-	if err := json.Unmarshal(t.Payload, &raw); err != nil {
-		raw = map[string]any{"p": string(t.Payload)}
+	env := asyncEnvelope{
+		Payload:    t.Payload,
+		Headers:    t.Headers,
+		RetryCount: t.RetryCount,
 	}
-	raw["retry_count"] = t.RetryCount
 
-	payload, err := json.Marshal(raw)
+	member, err := json.Marshal(env)
 	if err != nil {
 		return fmt.Errorf("marshal retry task: %w", err)
 	}
@@ -239,7 +249,7 @@ func (q *Queue) scheduleAsyncRetry(ctx context.Context, t queue.Task) error {
 	score := float64(time.Now().Add(d).Unix())
 
 	pipe := q.rdb.Pipeline()
-	pipe.ZAdd(ctx, q.asyncCfg.ZSetKey, goredis.Z{Score: score, Member: string(payload)})
+	pipe.ZAdd(ctx, q.asyncCfg.ZSetKey, goredis.Z{Score: score, Member: string(member)})
 	if t.ID != "" {
 		pipe.XAck(ctx, q.cfg.Stream, q.cfg.Group, t.ID)
 	}
@@ -454,16 +464,10 @@ func (q *Queue) Subscribe(ctx context.Context, handler queue.Handler) error {
 		}
 
 		for _, t := range tasks {
-			var retryWrapper struct {
-				Retry *int `json:"_retry"`
-			}
-			if err := json.Unmarshal(t.Payload, &retryWrapper); err == nil && retryWrapper.Retry != nil {
-				if *retryWrapper.Retry > t.RetryCount {
-					t.RetryCount = *retryWrapper.Retry
-				}
-			}
+			// The payload is opaque — the queue never inspects it.
+			// RetryCount is tracked via the native `fieldRetry` stream field,
+			// and OTel headers are managed by the TracedSubscriber middleware.
 
-			// Just call the handler directly. Decorator handles tracing.
 			var handlerErr error
 			func() {
 				defer func() {
@@ -505,8 +509,20 @@ func (q *Queue) staleRecoveryLoop(ctx context.Context) {
 			requeued := 0
 			dropped := 0
 			for _, t := range tasks {
-				payload := withRetryCount(t.Payload, t.RetryCount)
-				if err := q.Publish(ctx, queue.Message{Payload: payload}); err != nil {
+				// Re-enqueue natively via XADD — preserves RetryCount and Headers
+				// WITHOUT touching the opaque Payload bytes.
+				values := map[string]any{
+					fieldPayload: t.Payload,
+					fieldRetry:   strconv.Itoa(t.RetryCount),
+				}
+				for k, v := range t.Headers {
+					values["h:"+k] = v
+				}
+				err := q.rdb.XAdd(ctx, &goredis.XAddArgs{
+					Stream: q.cfg.Stream,
+					Values: values,
+				}).Err()
+				if err != nil {
 					log.Warn("stale re-enqueue failed", "id", t.ID, "err", err)
 					dropped++
 					continue
@@ -617,16 +633,24 @@ func (q *Queue) matureAsyncRetries(ctx context.Context) {
 		if !ok {
 			continue
 		}
-		// Unwrap the payload: scheduleAsyncRetry stores {"p":"...","retry_count":N}.
-		// Extract the original "p" field so handlers receive the expected payload.
-		payload := extractOriginalPayload(member)
-		retryCount := extractRetryCount(member)
+
+		var env asyncEnvelope
+		if err := json.Unmarshal([]byte(member), &env); err != nil {
+			q.log.Warn("failed to decode async envelope", "err", err)
+			continue
+		}
+
+		values := map[string]any{
+			fieldPayload: env.Payload,
+			fieldRetry:   strconv.Itoa(env.RetryCount),
+		}
+		for k, v := range env.Headers {
+			values["h:"+k] = v
+		}
+
 		pipe.XAdd(ctx, &goredis.XAddArgs{
 			Stream: q.cfg.Stream,
-			Values: map[string]any{
-				fieldPayload: payload,
-				fieldRetry:   retryCount,
-			},
+			Values: values,
 		})
 		pipe.ZRem(ctx, q.asyncCfg.ZSetKey, z.Member)
 	}
@@ -636,50 +660,5 @@ func (q *Queue) matureAsyncRetries(ctx context.Context) {
 	}
 }
 
-func extractRetryCount(payload string) string {
-	var t struct {
-		RetryCount int `json:"retry_count"`
-	}
-	if err := json.Unmarshal([]byte(payload), &t); err != nil {
-		return "0"
-	}
-	return strconv.Itoa(t.RetryCount)
-}
 
-// withRetryCount injects the retry count into a JSON payload as _retry.
-// Used by stale recovery to preserve retry state across re-enqueue.
-func withRetryCount(payload []byte, retryCount int) []byte {
-	if retryCount <= 0 {
-		return payload
-	}
-	var raw map[string]any
-	if err := json.Unmarshal(payload, &raw); err != nil {
-		return payload
-	}
-	raw["_retry"] = retryCount
-	out, err := json.Marshal(raw)
-	if err != nil {
-		return payload
-	}
-	return out
-}
 
-// extractOriginalPayload unwraps the payload stored by scheduleAsyncRetry.
-// scheduleAsyncRetry stores {"p":"<original>","retry_count":N}.
-// This function extracts the original "p" field so handlers receive
-// the expected payload format.
-func extractOriginalPayload(wrapped string) string {
-	var raw map[string]any
-	if err := json.Unmarshal([]byte(wrapped), &raw); err != nil {
-		return wrapped
-	}
-	if p, ok := raw["p"]; ok {
-		switch v := p.(type) {
-		case string:
-			return v
-		case []byte:
-			return string(v)
-		}
-	}
-	return wrapped
-}
