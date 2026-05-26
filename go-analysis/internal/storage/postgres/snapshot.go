@@ -9,8 +9,18 @@ import (
 )
 
 // SnapshotPlayerHero inserts a point-in-time snapshot of mv_player_hero_profile
-// and records the run in featurizer_runs.
-func SnapshotPlayerHero(ctx context.Context, db *pgxpool.Pool, now time.Time) error {
+// and records the run in featurizer_runs, all in a single transaction.
+func SnapshotPlayerHero(ctx context.Context, db *pgxpool.Pool, now time.Time) (err error) {
+	tx, err := db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin transaction: %w", err)
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback(ctx)
+		}
+	}()
+
 	const snapshotSQL = `
 	INSERT INTO analytics.feature_snapshots_player_hero
 	(snapshot_at, account_id, hero_id, games, wins, shrunk_wr, patch_min, patch_max)
@@ -26,8 +36,7 @@ func SnapshotPlayerHero(ctx context.Context, db *pgxpool.Pool, now time.Time) er
 	FROM analytics.mv_player_hero_profile
 	WHERE games >= 1
 	`
-	_, err := db.Exec(ctx, snapshotSQL, now)
-	if err != nil {
+	if _, err = tx.Exec(ctx, snapshotSQL, now); err != nil {
 		return fmt.Errorf("insert snapshot: %w", err)
 	}
 
@@ -38,10 +47,9 @@ func SnapshotPlayerHero(ctx context.Context, db *pgxpool.Pool, now time.Time) er
 	SET last_snapshot_at = EXCLUDED.last_snapshot_at,
 	    snapshot_status  = EXCLUDED.snapshot_status
 	`
-	_, err = db.Exec(ctx, runSQL, now)
-	if err != nil {
+	if _, err = tx.Exec(ctx, runSQL, now); err != nil {
 		return fmt.Errorf("update featurizer_runs: %w", err)
 	}
 
-	return nil
+	return tx.Commit(ctx)
 }

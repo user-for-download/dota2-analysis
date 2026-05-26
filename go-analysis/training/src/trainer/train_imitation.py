@@ -51,6 +51,15 @@ def run(settings: Settings):
     if missing:
         raise RuntimeError(f"Missing feature columns: {missing}")
 
+    # Sanity check: verify no NaN or inf values (breaks LightGBM training).
+    for col in feature_cols:
+        if candidates[col].isna().any():
+            n_na = candidates[col].isna().sum()
+            raise RuntimeError(f"Feature column '{col}' has {n_na} NaN values")
+        if np.isinf(candidates[col]).any():
+            n_inf = np.isinf(candidates[col].values).sum()
+            raise RuntimeError(f"Feature column '{col}' has {n_inf} inf values")
+
     # Split by match_id (critical for ranking: never split inside a match).
     match_ids = candidates["match_id"].unique()
     np.random.seed(42)

@@ -7,7 +7,12 @@ from trainer.db import get_engine
 
 
 def _refresh_mvs(engine):
-    """Refresh all analytics materialized views so data is current."""
+    """Refresh all analytics materialized views so data is current.
+
+    Collects errors from all views and continues through failures,
+    rather than aborting at the first one. This prevents a transient
+    error on one MV from leaving the rest stale.
+    """
     mvs = [
         "mv_team_hero_profile",
         "mv_hero_synergy",
@@ -15,11 +20,20 @@ def _refresh_mvs(engine):
         "mv_player_team_history",
         "mv_player_hero_profile",
     ]
+    errors = []
     with engine.connect() as conn:
         for mv in mvs:
             print(f"  Refreshing analytics.{mv}...")
-            conn.execute(text(f"REFRESH MATERIALIZED VIEW analytics.{mv}"))
+            try:
+                conn.execute(text(f"REFRESH MATERIALIZED VIEW analytics.{mv}"))
+            except Exception as e:
+                errors.append(f"{mv}: {e}")
+                print(f"    FAILED (continuing): {e}")
         conn.commit()
+    if errors:
+        print(f"  MV refresh completed with {len(errors)} error(s):")
+        for err in errors:
+            print(f"    - {err}")
 
 
 # ── Fallback: compute MV-like stats from base tables (no 6‑month filter) ─────
@@ -429,7 +443,7 @@ def _load_roster(engine, match_ids: list[int]) -> pd.DataFrame:
                         ELSE m.dire_team_id
                    END AS team_id
             FROM public.player_matches pm
-            JOIN public.matches m ON m.match_id = pm.match_id AND m.start_time = pm.start_time
+            JOIN public.matches m ON m.match_id = pm.match_id
             WHERE pm.match_id = ANY(:mids)
               AND pm.account_id IS NOT NULL
         """)
@@ -695,11 +709,19 @@ def _features_attr_diversity(candidates: pd.DataFrame) -> pd.DataFrame:
     # Attribute-fit score: hero's attribute value amplified by draft depth.
     # team_picks is the same for all candidates in a decision, but the
     # attribute flags differ — so the product varies per candidate.
+    #
+    # Weights: INT=0.5 (burst vs STR/AGI), AGI=0.3 (DPS complement),
+    # STR=0.2 (frontline).  Universal heroes (all three flags=1) use the
+    # MAX weight (0.5) via np.maximum, not the SUM (1.0), preventing 3x bias.
     result["attr_fit_score"] = (
         result["team_picks"]
-        * (result["attr_is_int"] * 0.5
-           + result["attr_is_agi"] * 0.3
-           + result["attr_is_str"] * 0.2)
+        * np.maximum(
+            result["attr_is_int"] * 0.5,
+            np.maximum(
+                result["attr_is_agi"] * 0.3,
+                result["attr_is_str"] * 0.2,
+            ),
+        )
     )
 
     return result

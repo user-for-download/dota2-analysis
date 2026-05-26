@@ -101,7 +101,8 @@ func (r *PGRepository) SynergyAvgBatch(ctx context.Context, allies, candidates [
 }
 
 // GlobalHeroStatsBatch returns global pick+win counts for heroes from picks_bans.
-func (r *PGRepository) GlobalHeroStatsBatch(ctx context.Context, heroes []domain.HeroID) (map[domain.HeroID]profiles.GlobalHeroStats, error) {
+// If patchID is non-zero, stats are filtered to that patch only.
+func (r *PGRepository) GlobalHeroStatsBatch(ctx context.Context, heroes []domain.HeroID, patchID domain.PatchID) (map[domain.HeroID]profiles.GlobalHeroStats, error) {
 	out := make(map[domain.HeroID]profiles.GlobalHeroStats, len(heroes))
 	for _, h := range heroes {
 		out[h] = profiles.GlobalHeroStats{}
@@ -109,6 +110,16 @@ func (r *PGRepository) GlobalHeroStatsBatch(ctx context.Context, heroes []domain
 	if len(heroes) == 0 {
 		return out, nil
 	}
+
+	var patchFilter string
+	var args []any
+	if patchID > 0 {
+		patchFilter = " AND m.patch_id = $2"
+		args = []any{heroIDsToInt16(heroes), int32(patchID)}
+	} else {
+		args = []any{heroIDsToInt16(heroes)}
+	}
+
 	rows, err := r.db.Query(ctx, `
 		SELECT pb.hero_id,
 		       COUNT(*)::int,
@@ -118,9 +129,9 @@ func (r *PGRepository) GlobalHeroStatsBatch(ctx context.Context, heroes []domain
 		WHERE pb.is_pick = true
 		  AND m.leagueid > 0
 		  AND m.radiant_win IS NOT NULL
-		  AND pb.hero_id = ANY($1)
+		  AND pb.hero_id = ANY($1)`+patchFilter+`
 		GROUP BY pb.hero_id
-	`, heroIDsToInt16(heroes))
+	`, args...)
 	if err != nil {
 		return nil, fmt.Errorf("global hero stats: %w", err)
 	}

@@ -94,6 +94,8 @@ type Repository interface {
 	RosterComfortAvgBatch(ctx context.Context, roster []domain.AccountID, heroes []domain.HeroID) (map[domain.HeroID]float64, error)
 	StarThreatBatch(ctx context.Context, themTeamID domain.TeamID, heroes []domain.HeroID, minGames int) (map[domain.HeroID]float64, error)
 
-	// Global hero priors (per-candidate ranking features)
-	GlobalHeroStatsBatch(ctx context.Context, heroes []domain.HeroID) (map[domain.HeroID]GlobalHeroStats, error)
+	// Global hero priors (per-candidate ranking features).
+	// If patchID is non-zero, stats are filtered to that patch only
+	// (matching the training-side computation from decisions.parquet).
+	GlobalHeroStatsBatch(ctx context.Context, heroes []domain.HeroID, patchID domain.PatchID) (map[domain.HeroID]GlobalHeroStats, error)
 }

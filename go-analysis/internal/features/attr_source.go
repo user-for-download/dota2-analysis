@@ -147,14 +147,16 @@ func (s *AttrFitScoreSource) Compute(ctx context.Context, st *domain.DraftState,
 	for _, h := range candidates {
 		attr := meta[h][0]
 		tp := float64(teamPicks[h].Games)
-		// Attribute weights: INT=0.5, AGI=0.3, STR=0.2
+		// Attribute weights: INT=0.5, AGI=0.3, STR=0.2.
+		// Universal heroes (attr==4) get the MAX weight (0.5) rather
+		// than the sum of all three — prevents a 3x bias.
 		var attrW float64
 		switch {
-		case attr == 3 || attr == 4: // int or universal → treat as int
+		case attr == 3 || attr == 4: // int or universal → max(0.5)
 			attrW = 0.5
-		case attr == 2: // agi
+		case attr == 2: // agi → 0.3
 			attrW = 0.3
-		default: // str or unknown
+		default: // str or unknown → 0.2
 			attrW = 0.2
 		}
 		result[h] = tp * attrW

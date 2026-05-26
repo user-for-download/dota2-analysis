@@ -30,7 +30,7 @@ func (s *HeroPickRateSource) Def() domain.FeatureDef {
 }
 
 func (s *HeroPickRateSource) Compute(ctx context.Context, st *domain.DraftState, candidates []domain.HeroID) (map[domain.HeroID]float64, error) {
-	stats, err := s.repo.GlobalHeroStatsBatch(ctx, candidates)
+	stats, err := s.repo.GlobalHeroStatsBatch(ctx, candidates, st.Patch())
 	if err != nil {
 		return nil, fmt.Errorf("hero pick rate: %w", err)
 	}
@@ -67,7 +67,7 @@ func (s *HeroWRSource) Def() domain.FeatureDef {
 }
 
 func (s *HeroWRSource) Compute(ctx context.Context, st *domain.DraftState, candidates []domain.HeroID) (map[domain.HeroID]float64, error) {
-	stats, err := s.repo.GlobalHeroStatsBatch(ctx, candidates)
+	stats, err := s.repo.GlobalHeroStatsBatch(ctx, candidates, st.Patch())
 	if err != nil {
 		return nil, fmt.Errorf("hero wr: %w", err)
 	}
@@ -100,7 +100,7 @@ func (s *HeroPopularitySource) Def() domain.FeatureDef {
 }
 
 func (s *HeroPopularitySource) Compute(ctx context.Context, st *domain.DraftState, candidates []domain.HeroID) (map[domain.HeroID]float64, error) {
-	stats, err := s.repo.GlobalHeroStatsBatch(ctx, candidates)
+	stats, err := s.repo.GlobalHeroStatsBatch(ctx, candidates, st.Patch())
 	if err != nil {
 		return nil, fmt.Errorf("hero popularity: %w", err)
 	}
