@@ -4,6 +4,7 @@ import pandas as pd
 import lightgbm as lgb
 import numpy as np
 from trainer.config import Settings
+from trainer.feature_specs import FEATURES
 
 
 def run(settings: Settings):
@@ -20,10 +21,19 @@ def run(settings: Settings):
 
     decisions = pd.read_parquet(cand_path)
 
+    # Feature columns must match the model's training features.
+    feature_cols = [f["name"] for f in FEATURES]
+    missing = [c for c in feature_cols if c not in decisions.columns]
+    if missing:
+        raise RuntimeError(
+            f"Candidates.parquet is missing feature columns {missing}. "
+            f"Available: {list(decisions.columns)}"
+        )
+
     model_path = settings.artifact_dir / "imitation" / "model.bin"
     booster = lgb.Booster(model_file=str(model_path))
 
-    X = decisions[["hero_id"]].values.astype(float)
+    X = decisions[feature_cols].values.astype(float)
     predictions = booster.predict(X)
 
     # Compute Recall@5 per match — fraction of actually-picked heroes
