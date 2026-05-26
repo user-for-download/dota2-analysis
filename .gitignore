@@ -75,3 +75,7 @@ tools/prc.json
 .opencode
 .zed
 .tmp/
+go-analysis/assets/models/imitation/*
+go-analysis/assets/models/value/*
+!go-analysis/assets/models/imitation/.gitkeep
+!go-analysis/assets/models/value/.gitkeep

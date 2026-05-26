@@ -44,7 +44,7 @@ build: ## Build all Docker images
 
 # ───── Run ─────
 infra: ## Start infrastructure (Postgres + Redis + Jaeger)
-	$(COMPOSE) --profile infra up -d
+	$(COMPOSE) --profile infra up
 
 migrate: ## Run database migrations (via Docker compose)
 	$(COMPOSE) --profile migrate run --rm migrator
