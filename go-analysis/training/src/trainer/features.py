@@ -22,29 +22,112 @@ def _refresh_mvs(engine):
         conn.commit()
 
 
+# ── Fallback: compute MV-like stats from base tables (no 6‑month filter) ─────
+
+_FALLBACK_SQL = {
+    "team_hero": text("""
+        SELECT tm.team_id, pb.hero_id,
+               COUNT(*)::int                              AS team_picks,
+               ((SUM(CASE WHEN tm.win THEN 1 ELSE 0 END) + 3.0)
+                / (COUNT(*) + 6.0))::real                 AS team_wr_shrunk
+        FROM public.team_matches tm
+        JOIN public.matches m      ON m.match_id  = tm.match_id AND m.start_time = tm.start_time
+        JOIN public.picks_bans pb  ON pb.match_id = m.match_id
+                                  AND pb.is_pick  = true
+                                  AND pb.team     = CASE WHEN tm.is_radiant THEN 0 ELSE 1 END
+        JOIN public.heroes h       ON h.id        = pb.hero_id
+        WHERE m.leagueid > 0
+          AND m.radiant_team_id IS NOT NULL
+          AND m.dire_team_id    IS NOT NULL
+          AND pb.hero_id        > 0
+        GROUP BY tm.team_id, pb.hero_id
+    """),
+    "synergy": text("""
+        WITH team_picks AS (
+            SELECT m.match_id, pb.team, pb.hero_id,
+                   CASE WHEN pb.team = 0 THEN m.radiant_win
+                        ELSE NOT m.radiant_win END AS won
+            FROM public.picks_bans pb
+            JOIN public.matches m ON m.match_id = pb.match_id
+            WHERE pb.is_pick    = true
+              AND m.leagueid    > 0
+              AND m.radiant_team_id IS NOT NULL
+              AND m.dire_team_id    IS NOT NULL
+              AND m.radiant_win     IS NOT NULL
+              AND pb.hero_id        > 0
+        )
+        SELECT a.hero_id AS hero_a, b.hero_id AS hero_b,
+               ((SUM(a.won::int) + 3.0) / (COUNT(*) + 6.0))::real AS shrunk_wr
+        FROM team_picks a
+        JOIN team_picks b ON a.match_id = b.match_id AND a.team = b.team AND a.hero_id < b.hero_id
+        GROUP BY a.hero_id, b.hero_id
+    """),
+    "counter": text("""
+        WITH match_heroes AS (
+            SELECT m.match_id, pb.hero_id, pb.team,
+                   CASE WHEN pb.team = 0 THEN m.radiant_win
+                        ELSE NOT m.radiant_win END AS won
+            FROM public.picks_bans pb
+            JOIN public.matches m ON m.match_id = pb.match_id
+            WHERE pb.is_pick    = true
+              AND m.leagueid    > 0
+              AND m.radiant_team_id IS NOT NULL
+              AND m.dire_team_id    IS NOT NULL
+              AND m.radiant_win     IS NOT NULL
+              AND pb.hero_id        > 0
+        )
+        SELECT a.hero_id AS hero_a, b.hero_id AS hero_b,
+               ((SUM(a.won::int) + 3.0) / (COUNT(*) + 6.0))::real AS shrunk_wr
+        FROM match_heroes a
+        JOIN match_heroes b ON a.match_id = b.match_id AND a.team != b.team AND a.hero_id != b.hero_id
+        GROUP BY a.hero_id, b.hero_id
+    """),
+    "player_hero": text("""
+        SELECT pm.account_id, pm.hero_id,
+               ((SUM(pm.win::int) + 5.0) / (COUNT(*) + 10.0))::real AS ph_comfort
+        FROM public.player_matches pm
+        JOIN public.matches m ON m.match_id = pm.match_id AND m.start_time = pm.start_time
+        WHERE m.leagueid    > 0
+          AND m.radiant_team_id IS NOT NULL
+          AND m.dire_team_id    IS NOT NULL
+          AND pm.account_id IS NOT NULL
+          AND pm.win        IS NOT NULL
+          AND pm.hero_id    > 0
+        GROUP BY pm.account_id, pm.hero_id
+    """),
+}
+
+
 def _load_mvs(engine) -> dict[str, pd.DataFrame]:
-    """Load all materialized views and reference tables into DataFrames."""
-    team_hero = pd.read_sql(
-        text("""
+    """Load all materialized views and reference tables into DataFrames.
+
+    If a MV is empty (training data is older than the 6‑month window),
+    falls back to a direct query against base tables with no time filter.
+    """
+    # ── MVs that may be empty for historical data ──────────────────────
+    mv_queries = {
+        "team_hero": text("""
             SELECT team_id, hero_id,
                    games::int AS team_picks,
-                   shrunk_wr AS team_wr_shrunk
+                   shrunk_wr   AS team_wr_shrunk
             FROM analytics.mv_team_hero_profile
         """),
-        engine,
-    )
+        "synergy": text("SELECT hero_a, hero_b, shrunk_wr FROM analytics.mv_hero_synergy"),
+        "counter": text("SELECT hero_a, hero_b, shrunk_wr FROM analytics.mv_hero_counter"),
+        "player_hero": text("""
+            SELECT account_id, hero_id,
+                   shrunk_wr AS ph_comfort
+            FROM analytics.mv_player_hero_profile
+        """),
+    }
 
-    synergy = pd.read_sql(
-        text("SELECT hero_a, hero_b, shrunk_wr FROM analytics.mv_hero_synergy"),
-        engine,
-    )
+    loaded = {}
+    for key, sql in mv_queries.items():
+        df = pd.read_sql(sql, engine)
+        loaded[key] = df
 
-    counter = pd.read_sql(
-        text("SELECT hero_a, hero_b, shrunk_wr FROM analytics.mv_hero_counter"),
-        engine,
-    )
-
-    hero_meta = pd.read_sql(
+    # ── hero_meta never needs a fallback (static table) ────────────────
+    loaded["hero_meta"] = pd.read_sql(
         text("""
             SELECT id,
                    CASE primary_attr
@@ -58,22 +141,18 @@ def _load_mvs(engine) -> dict[str, pd.DataFrame]:
         engine,
     )
 
-    player_hero = pd.read_sql(
-        text("""
-            SELECT account_id, hero_id,
-                   shrunk_wr AS ph_comfort
-            FROM analytics.mv_player_hero_profile
-        """),
-        engine,
-    )
+    # ── Fall back to base-table queries for empty MVs ──────────────────
+    for key in ("team_hero", "synergy", "counter", "player_hero"):
+        if loaded[key].empty:
+            print(f"  {key} MV is empty — computing from base tables (no time filter)...")
+            fallback_df = pd.read_sql(_FALLBACK_SQL[key], engine)
+            if not fallback_df.empty:
+                loaded[key] = fallback_df
+                print(f"    -> loaded {len(fallback_df)} rows from base tables")
+            else:
+                print(f"    -> base tables also empty, features will use defaults")
 
-    return {
-        "team_hero": team_hero,
-        "synergy": synergy,
-        "counter": counter,
-        "hero_meta": hero_meta,
-        "player_hero": player_hero,
-    }
+    return loaded
 
 
 def _features_team(
