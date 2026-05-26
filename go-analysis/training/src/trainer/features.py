@@ -98,6 +98,35 @@ _FALLBACK_SQL = {
 }
 
 
+def _compute_hero_global_stats(engine) -> pd.DataFrame:
+    """Compute per-hero stats from picks_bans (always available).
+
+    Used as a fallback when team-level MVs are empty — gives the model
+    real signal (hero popularity, global win rate) instead of flat 0.5.
+    """
+    return pd.read_sql(
+        text("""
+            SELECT
+                pb.hero_id,
+                COUNT(*)::int
+                    AS global_picks,
+                ((SUM(CASE WHEN (pb.team = 0 AND m.radiant_win)
+                                OR (pb.team = 1 AND NOT m.radiant_win)
+                           THEN 1 ELSE 0 END) + 3.0)
+                 / (COUNT(*) + 6.0))::real
+                    AS global_wr_shrunk
+            FROM public.picks_bans pb
+            JOIN public.matches m ON m.match_id = pb.match_id
+            WHERE pb.is_pick  = true
+              AND m.leagueid  > 0
+              AND m.radiant_win IS NOT NULL
+              AND pb.hero_id   > 0
+            GROUP BY pb.hero_id
+        """),
+        engine,
+    )
+
+
 def _load_mvs(engine) -> dict[str, pd.DataFrame]:
     """Load all materialized views and reference tables into DataFrames.
 
@@ -152,13 +181,23 @@ def _load_mvs(engine) -> dict[str, pd.DataFrame]:
             else:
                 print(f"    -> base tables also empty, features will use defaults")
 
+    # ── Hero-global stats: always available, used as fillna fallback ───
+    loaded["hero_global"] = _compute_hero_global_stats(engine)
+    if loaded["hero_global"].empty:
+        print("  WARNING: hero_global stats are empty — no picks_bans data found")
+
     return loaded
 
 
 def _features_team(
     df: pd.DataFrame, mvs: dict[str, pd.DataFrame]
 ) -> pd.DataFrame:
-    """Features 0-1: team_picks, team_wr_shrunk."""
+    """Features 0-1: team_picks, team_wr_shrunk.
+
+    Falls back to hero-global stats when team-level data is missing
+    (empty team_matches or unlinked team IDs).
+    """
+    hg = mvs.get("hero_global")
     th = mvs["team_hero"]
     df = df.merge(
         th[["team_id", "hero_id", "team_picks", "team_wr_shrunk"]],
@@ -166,8 +205,19 @@ def _features_team(
         right_on=["team_id", "hero_id"],
         how="left",
     )
-    df["team_picks"] = df["team_picks"].fillna(0).astype(int)
-    df["team_wr_shrunk"] = df["team_wr_shrunk"].fillna(0.5)
+    if hg is not None and not hg.empty:
+        # Merge global stats and use them as fallback.
+        df = df.merge(
+            hg[["hero_id", "global_picks", "global_wr_shrunk"]],
+            on="hero_id",
+            how="left",
+        )
+        df["team_picks"] = df["team_picks"].fillna(df["global_picks"]).astype(int)
+        df["team_wr_shrunk"] = df["team_wr_shrunk"].fillna(df["global_wr_shrunk"])
+        df.drop(columns=["global_picks", "global_wr_shrunk"], inplace=True, errors="ignore")
+    else:
+        df["team_picks"] = df["team_picks"].fillna(0).astype(int)
+        df["team_wr_shrunk"] = df["team_wr_shrunk"].fillna(0.5)
     df.drop(columns=["team_id"], inplace=True, errors="ignore")
     return df
 
@@ -182,8 +232,30 @@ def _features_synergy(
     (hero_a < hero_b).
     """
     syn = mvs["synergy"]
+    hg = mvs.get("hero_global")
+
     if syn.empty:
-        df["mean_syn_with_allies"] = 0.5
+        if hg is not None and not hg.empty:
+            # Fallback: compute average global WR of ally picks per candidate.
+            actual = df[df["label"] == 1.0][["match_id", "hero_id"]].drop_duplicates()
+            actual.rename(columns={"hero_id": "ally_hero_id"}, inplace=True)
+            cross = df[["match_id", "hero_id"]].drop_duplicates().merge(
+                actual, on="match_id"
+            )
+            cross = cross[cross["hero_id"] != cross["ally_hero_id"]]
+            cross = cross.merge(
+                hg[["hero_id", "global_wr_shrunk"]].rename(
+                    columns={"hero_id": "ally_hero_id", "global_wr_shrunk": "syn_fb"}
+                ),
+                on="ally_hero_id",
+                how="left",
+            )
+            mean_syn = cross.groupby(["match_id", "hero_id"], as_index=False)["syn_fb"].mean()
+            mean_syn.rename(columns={"syn_fb": "mean_syn_with_allies"}, inplace=True)
+            df = df.merge(mean_syn, on=["match_id", "hero_id"], how="left")
+            df["mean_syn_with_allies"] = df["mean_syn_with_allies"].fillna(0.5)
+        else:
+            df["mean_syn_with_allies"] = 0.5
         return df
 
     # Actual picks (positive samples) define the ally set.
@@ -204,6 +276,18 @@ def _features_synergy(
     cross["b"] = cross[["hero_id", "ally_hero_id"]].max(axis=1)
     cross = cross.merge(syn, left_on=["a", "b"], right_on=["hero_a", "hero_b"], how="left")
 
+    # If synergy is missing for some pairs, fill with hero_global WR.
+    if hg is not None and not hg.empty:
+        cross = cross.merge(
+            hg[["hero_id", "global_wr_shrunk"]].rename(
+                columns={"hero_id": "ally_hero_id", "global_wr_shrunk": "global_wr_ally"}
+            ),
+            on="ally_hero_id",
+            how="left",
+        )
+        cross["shrunk_wr"] = cross["shrunk_wr"].fillna(cross["global_wr_ally"])
+        cross.drop(columns=["global_wr_ally"], inplace=True, errors="ignore")
+
     mean_syn = cross.groupby(["match_id", "hero_id"], as_index=False)["shrunk_wr"].mean()
     mean_syn.rename(columns={"shrunk_wr": "mean_syn_with_allies"}, inplace=True)
 
@@ -222,8 +306,35 @@ def _features_counter(
     WR is measured) vs hero_b (the opponent).
     """
     cnt = mvs["counter"]
+    hg = mvs.get("hero_global")
+
     if cnt.empty:
-        df["mean_counter_vs_enemies"] = 0.5
+        if hg is not None and not hg.empty:
+            # Fallback: compute average global WR of enemy picks per candidate.
+            actual = df[df["label"] == 1.0][["match_id", "hero_id", "acting_team", "opp_team"]].drop_duplicates()
+            enemy_picks = actual.rename(
+                columns={"hero_id": "enemy_hero_id", "acting_team": "enemy_acting"}
+            )[["match_id", "enemy_hero_id", "enemy_acting"]]
+            cross = df[["match_id", "hero_id", "opp_team"]].drop_duplicates()
+            cross = cross.merge(
+                enemy_picks,
+                left_on=["match_id", "opp_team"],
+                right_on=["match_id", "enemy_acting"],
+                how="inner",
+            )
+            cross = cross.merge(
+                hg[["hero_id", "global_wr_shrunk"]].rename(
+                    columns={"hero_id": "enemy_hero_id", "global_wr_shrunk": "cnt_fb"}
+                ),
+                on="enemy_hero_id",
+                how="left",
+            )
+            mean_cnt = cross.groupby(["match_id", "hero_id"], as_index=False)["cnt_fb"].mean()
+            mean_cnt.rename(columns={"cnt_fb": "mean_counter_vs_enemies"}, inplace=True)
+            df = df.merge(mean_cnt, on=["match_id", "hero_id"], how="left")
+            df["mean_counter_vs_enemies"] = df["mean_counter_vs_enemies"].fillna(0.5)
+        else:
+            df["mean_counter_vs_enemies"] = 0.5
         return df
 
     # Actual picks with their team perspective.
@@ -259,6 +370,18 @@ def _features_counter(
         right_on=["hero_a", "hero_b"],
         how="left",
     )
+
+    # Fill missing counter pairs with enemy's global WR.
+    if hg is not None and not hg.empty:
+        cross = cross.merge(
+            hg[["hero_id", "global_wr_shrunk"]].rename(
+                columns={"hero_id": "enemy_hero_id", "global_wr_shrunk": "global_wr_enemy"}
+            ),
+            on="enemy_hero_id",
+            how="left",
+        )
+        cross["shrunk_wr"] = cross["shrunk_wr"].fillna(cross["global_wr_enemy"])
+        cross.drop(columns=["global_wr_enemy"], inplace=True, errors="ignore")
 
     mean_cnt = cross.groupby(["match_id", "hero_id"], as_index=False)["shrunk_wr"].mean()
     mean_cnt.rename(columns={"shrunk_wr": "mean_counter_vs_enemies"}, inplace=True)
@@ -327,15 +450,36 @@ def _features_player_comfort(
     candidate hero.
     """
     ph = mvs["player_hero"]
+    hg = mvs.get("hero_global")
+
     if ph.empty:
-        df["player_comfort"] = 0.5
+        if hg is not None and not hg.empty:
+            # Fallback: global WR per hero (no player-specific signal).
+            df = df.merge(
+                hg[["hero_id", "global_wr_shrunk"]],
+                on="hero_id",
+                how="left",
+            )
+            df["player_comfort"] = df["global_wr_shrunk"].fillna(0.5)
+            df.drop(columns=["global_wr_shrunk"], inplace=True, errors="ignore")
+        else:
+            df["player_comfort"] = 0.5
         return df
 
     match_ids = df["match_id"].unique().tolist()
     roster = _load_roster(engine, match_ids)
 
     if roster.empty:
-        df["player_comfort"] = 0.5
+        if hg is not None and not hg.empty:
+            df = df.merge(
+                hg[["hero_id", "global_wr_shrunk"]],
+                on="hero_id",
+                how="left",
+            )
+            df["player_comfort"] = df["global_wr_shrunk"].fillna(0.5)
+            df.drop(columns=["global_wr_shrunk"], inplace=True, errors="ignore")
+        else:
+            df["player_comfort"] = 0.5
         return df
 
     # Cross each candidate with the acting team's roster.
@@ -358,7 +502,16 @@ def _features_player_comfort(
         on=["account_id", "hero_id"],
         how="left",
     )
-    cross["ph_comfort"] = cross["ph_comfort"].fillna(0.5)
+    if hg is not None and not hg.empty:
+        cross = cross.merge(
+            hg[["hero_id", "global_wr_shrunk"]],
+            on="hero_id",
+            how="left",
+        )
+        cross["ph_comfort"] = cross["ph_comfort"].fillna(cross["global_wr_shrunk"])
+        cross.drop(columns=["global_wr_shrunk"], inplace=True, errors="ignore")
+    else:
+        cross["ph_comfort"] = cross["ph_comfort"].fillna(0.5)
 
     # Average across the roster.
     avg_comfort = cross.groupby(["match_id", "hero_id"], as_index=False)["ph_comfort"].mean()
@@ -379,15 +532,24 @@ def _features_star_threat(
     (signature hero), then average those values as the threat level.
     """
     ph = mvs["player_hero"]
+    hg = mvs.get("hero_global")
+
     if ph.empty:
-        df["star_threat"] = 0.5
+        if hg is not None and not hg.empty:
+            # Fallback: average global WR across all heroes as generic threat.
+            df["star_threat"] = hg["global_wr_shrunk"].mean()
+        else:
+            df["star_threat"] = 0.5
         return df
 
     match_ids = df["match_id"].unique().tolist()
     roster = _load_roster(engine, match_ids)
 
     if roster.empty:
-        df["star_threat"] = 0.5
+        if hg is not None and not hg.empty:
+            df["star_threat"] = hg["global_wr_shrunk"].mean()
+        else:
+            df["star_threat"] = 0.5
         return df
 
     # For each (match_id, opp_team), get the opponent roster.
