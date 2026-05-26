@@ -6,6 +6,7 @@ FEATURE_SPEC_VERSION = "2025-11-15"
 # Must match internal/features/specs.go:FeatureDefs() — same names, dtypes, order.
 # source_hash stores the human-readable description (Go stores the SHA-256[:8] of this).
 FEATURES = [
+    # MV-dependent features (use defaults when MVs are empty)
     {"name": "team_picks", "dtype": "f32", "source_hash": "team_picks: SELECT games FROM mv_team_hero_profile WHERE team_id=? AND hero_id=?"},
     {"name": "team_wr_shrunk", "dtype": "f32", "source_hash": "team_wr_shrunk: SELECT wr_shrunk FROM mv_team_hero_profile WHERE team_id=? AND hero_id=?"},
     {"name": "mean_syn_with_allies", "dtype": "f32", "source_hash": "mean_syn: AVG(wr_shrunk) FROM mv_hero_synergy WHERE hero_a IN (allies) AND hero_b=candidate"},
@@ -14,4 +15,9 @@ FEATURES = [
     {"name": "hero_meta_role_count", "dtype": "f32", "source_hash": "role_count: len(hero.Roles)"},
     {"name": "player_comfort", "dtype": "f32", "source_hash": "player_comfort: wr_shrunk FROM mv_player_hero_profile WHERE account_id=? AND hero_id=?"},
     {"name": "star_threat", "dtype": "f32", "source_hash": "star_threat: opponent signature hero threat level"},
+    # MV-independent features (always available from decisions.parquet)
+    {"name": "hero_global_wr", "dtype": "f32", "source_hash": "hero_global_wr: shrunk WR from training decisions per hero"},
+    {"name": "hero_pick_rate", "dtype": "f32", "source_hash": "hero_pick_rate: pick frequency from training decisions"},
+    {"name": "draft_slot_norm", "dtype": "f32", "source_hash": "draft_slot_norm: slot/max_slot normalized to [0,1]"},
+    {"name": "is_pick_phase", "dtype": "f32", "source_hash": "is_pick_phase: 1.0 for picks, 0.0 for bans"},
 ]

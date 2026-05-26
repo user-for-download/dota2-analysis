@@ -583,24 +583,63 @@ def _features_star_threat(
     return df
 
 
-def compute_features(candidates: pd.DataFrame, settings: Settings) -> pd.DataFrame:
-    """Compute the 8-feature vector for each candidate row.
+# ── MV-independent features (computed from decisions.parquet, no DB needed) ──
+
+
+def _features_hero_global_rates(
+    candidates: pd.DataFrame, raw_decisions: pd.DataFrame
+) -> pd.DataFrame:
+    """Features 8-9: hero_global_wr, hero_pick_rate.
+
+    Computed directly from the original decisions (not the candidates).
+    Shrunk WR uses prior=20 for stronger shrinkage with limited data.
+    """
+    n_matches = raw_decisions["match_id"].nunique()
+    picks = raw_decisions[raw_decisions["is_pick"] == True]
+
+    hero_stats = (
+        picks.groupby("hero_id")
+        .agg(hero_global_games=("match_id", "count"), hero_global_wins=("acting_won", "sum"))
+        .reset_index()
+    )
+    hero_stats["hero_global_wr"] = (
+        (hero_stats["hero_global_wins"] + 20.0) / (hero_stats["hero_global_games"] + 40.0)
+    )
+    hero_stats["hero_pick_rate"] = hero_stats["hero_global_games"] / n_matches
+    hero_stats.drop(columns=["hero_global_games", "hero_global_wins"], inplace=True)
+
+    result = candidates.merge(hero_stats, on="hero_id", how="left")
+    result["hero_global_wr"] = result["hero_global_wr"].fillna(0.5)
+    result["hero_pick_rate"] = result["hero_pick_rate"].fillna(0.0)
+    return result
+
+
+def _features_draft(candidates: pd.DataFrame) -> pd.DataFrame:
+    """Features 10-11: draft_slot_norm, is_pick_phase.
+
+    Draft position and pick-vs-ban phase — no DB needed.
+    """
+    result = candidates.copy()
+    result["draft_slot_norm"] = result["slot"] / 30.0  # normalize to ~[0, 1]
+    result["is_pick_phase"] = result["is_pick"].astype(float)
+    result["is_pick_phase"] = result["is_pick_phase"].fillna(1.0)
+    return result
+
+
+def compute_features(
+    candidates: pd.DataFrame, settings: Settings, raw_decisions: pd.DataFrame
+) -> pd.DataFrame:
+    """Compute the 12-feature vector for each candidate row.
 
     Each candidate row represents a (match, suggested hero) pair.
     Positive samples (label=1.0) are actual picks; negative samples
     (label=0.0) are undrafted heroes.
 
-    Feature order must match FEATURE_SPEC_VERSION in feature_specs.py:
-      0. team_picks
-      1. team_wr_shrunk
-      2. mean_syn_with_allies
-      3. mean_counter_vs_enemies
-      4. hero_meta_primary_attr
-      5. hero_meta_role_count
-      6. player_comfort
-      7. star_threat
+    Features 0-7 may use MV defaults when analytics tables are empty.
+    Features 8-11 are computed directly from the raw decisions and
+    are always available.
 
-    Missing MV data defaults to 0 (counts) or 0.5 (win rates).
+    Feature order must match FEATURE_SPEC_VERSION in feature_specs.py.
     """
     engine = get_engine(settings)
 
@@ -618,16 +657,23 @@ def compute_features(candidates: pd.DataFrame, settings: Settings) -> pd.DataFra
 
     result = candidates.copy()
 
-    # Drop rows where team IDs are NULL — can't compute features.
+    # Impute missing team IDs with sentinel instead of dropping rows.
     before = len(result)
-    result = result.dropna(subset=["acting_team", "opp_team"])
+    result["acting_team"] = result["acting_team"].fillna(-1).astype(int)
+    result["opp_team"] = result["opp_team"].fillna(-1).astype(int)
     if len(result) < before:
-        print(f"Dropped {before - len(result)} rows with missing team IDs")
+        print(f"Imputed team IDs for {before - len(result)} rows (should not happen with fillna)")
+
+    # MV-dependent features (may use defaults when MVs empty)
     result = _features_team(result, mvs)
     result = _features_synergy(result, mvs)
     result = _features_counter(result, mvs)
     result = _features_hero_meta(result, mvs)
     result = _features_player_comfort(result, mvs, engine)
     result = _features_star_threat(result, mvs, engine)
+
+    # MV-independent features (always available)
+    result = _features_hero_global_rates(result, raw_decisions)
+    result = _features_draft(result)
 
     return result

@@ -19,7 +19,7 @@ def run(settings: Settings):
     that mimics professional draft decisions. The model is trained per-match
     (groups) so that NDCG is computed within each draft context.
     """
-    decisions = pd.read_parquet(settings.artifact_dir / "decisions.parquet")
+    raw_decisions = pd.read_parquet(settings.artifact_dir / "decisions.parquet")
 
     # Fetch all known hero IDs for candidate generation.
     engine = get_engine(settings)
@@ -31,34 +31,34 @@ def run(settings: Settings):
 
     # Generate negative samples (unpicked heroes with label=0).
     print("Generating candidates...")
-    decisions = generate_candidates(decisions, all_heroes)
+    candidates = generate_candidates(raw_decisions, all_heroes)
 
-    # Compute the 8-feature vector (joins MVs from the database).
+    # Compute all features (MV-dependent + MV-independent).
     print("Computing features...")
-    decisions = compute_features(decisions, settings)
+    candidates = compute_features(candidates, settings, raw_decisions=raw_decisions)
 
     # Save full candidate dataset (features + labels) for evaluate.py.
     cand_path = settings.artifact_dir / "candidates.parquet"
-    decisions.to_parquet(cand_path, index=False)
-    print(f"Saved {len(decisions)} feature-rich candidates to {cand_path}")
+    candidates.to_parquet(cand_path, index=False)
+    print(f"Saved {len(candidates)} feature-rich candidates to {cand_path}")
 
     # Feature column names must match FEATURES order in feature_specs.py.
     feature_cols = [f["name"] for f in FEATURES]
     print(f"Training with {len(feature_cols)} features: {feature_cols}")
 
     # Sanity check: verify all feature columns exist.
-    missing = [c for c in feature_cols if c not in decisions.columns]
+    missing = [c for c in feature_cols if c not in candidates.columns]
     if missing:
         raise RuntimeError(f"Missing feature columns: {missing}")
 
     # Split by match_id (critical for ranking: never split inside a match).
-    match_ids = decisions["match_id"].unique()
+    match_ids = candidates["match_id"].unique()
     np.random.seed(42)
     np.random.shuffle(match_ids)
     split_idx = int(len(match_ids) * 0.8)
 
-    train_df = decisions[decisions["match_id"].isin(match_ids[:split_idx])]
-    val_df = decisions[decisions["match_id"].isin(match_ids[split_idx:])]
+    train_df = candidates[candidates["match_id"].isin(match_ids[:split_idx])]
+    val_df = candidates[candidates["match_id"].isin(match_ids[split_idx:])]
 
     X_train = train_df[feature_cols].values.astype(float)
     y_train = train_df["label"].values
