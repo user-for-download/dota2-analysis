@@ -160,6 +160,10 @@ for recovery scenarios — e.g. when the enricher was restarted mid-interval
 and the Redis gate keys are still fresh, blocking the at-start run. Set it
 for one restart, then revert to `false` once the data is populated.
 
+When `ENRICH_LOCAL_DIR` is configured (file-based bootstrap), the local
+runner uses its own independent `Always{}` gate so that local bootstrap
+runs never contaminate the main runner's Redis gate state.
+
 Sources implement the `enrich.RunSource` interface in `enrich/sources/` —
 adding a new source requires implementing the interface and registering it
 in the sources slice in `cmd/enricher/main.go`. The `refdatastore` package provides the canonical
@@ -175,6 +179,12 @@ after they exceed `QUEUE_MAX_RETRIES`. Supports three commands via `--cmd`:
 - **`list`** — print all DLQ messages as formatted JSON
 - **`requeue`** — return messages to their origin stream for reprocessing
 - **`purge`** — delete all messages from the DLQ
+
+DLQ messages preserve W3C trace context: when the queue routes a task to
+the DLQ via `routeDLQ()`, the task's headers (including `h:traceparent`
+and `h:tracestate`) are forwarded alongside payload/retry/reason fields.
+On `requeue`, any stored `h:*` headers are restored so the trace chain
+remains unbroken through DLQ inspection and reprocessing.
 
 This binary is a standalone debugging and recovery tool — it is not part of the
 main pipeline and does not run by default.
@@ -389,7 +399,8 @@ jitter, and either re-adds the message or routes to the DLQ once
 from crashed consumers.
 
 W3C trace context is automatically propagated through queue messages
-via `_otel_traceparent` and `_otel_tracestate` fields.
+via `h:traceparent` and `h:tracestate` fields (the `h:` prefix prevents
+collisions with payload fields in the Redis Stream).
 
 > **Note:** during a retry's backoff the original message is still
 > pending in the consumer group. A worker crash mid-backoff results in
