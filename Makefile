@@ -56,7 +56,7 @@ ingestion: ## Start the ingestion pipeline
 	$(COMPOSE) --profile ingestion up
 
 analytics: ## Start the analytics pipeline
-	$(COMPOSE) --profile analytics up
+	$(COMPOSE) --profile analytics up --force-recreate
 
 up: infra migrate ingestion analytics ## Start everything
 
@@ -86,38 +86,6 @@ shell-db: ## Open psql shell
 shell-redis: ## Open redis-cli
 	$(COMPOSE) exec redis env REDISCLI_AUTH=$${REDIS_PASSWORD:-dota2} redis-cli
 
-# ───── Publish ─────
-DOWNSTREAM_MODS := go-ingestion go-analysis
-CORE_MODULE    := github.com/user-for-download/dota2-analysis/go-core
-
-publish-core: ## Tag and push go-core, update downstream modules, regenerate go.sum
-	@echo "=== Publishing go-dota2-core ==="
-	@read -p "Version (e.g. v1.0.0): " VERSION; \
-	cd go-core && git tag $$VERSION && git push origin $$VERSION; \
-	for mod in $(DOWNSTREAM_MODS); do \
-		echo "--- Updating $$mod ---"; \
-		cd $(CURDIR)/$$mod; \
-		sed -i.bak '/^replace.*go-core/d' go.mod && rm -f go.mod.bak; \
-		GOWORK=off go get $(CORE_MODULE)@$$VERSION; \
-		GOWORK=off go mod tidy; \
-		cd $(CURDIR); \
-	done; \
-	echo "=== publish-core complete ==="; \
-	echo "Changes staged. Verify with: git diff --stat"
-
-# ───── Schema ─────
-new-migration: ## Create a new schema migration: make new-migration NAME=add_foo_column
-	@test -n "$(NAME)" || (echo "Usage: make new-migration NAME=add_foo_column" && exit 1)
-	@echo "$(NAME)" | grep -qE '^[a-z][a-z0-9_]*$$' || \
-	  (echo "NAME must be snake_case lowercase: ^[a-z][a-z0-9_]*$$" && exit 1)
-	@n=$$(printf "%03d" $$(( $$(ls go-core/schema/migrations/*.sql 2>/dev/null | wc -l) + 1 ))); \
-	 f="go-core/schema/migrations/$${n}_$(NAME).sql"; \
-	 echo "-- $${n}_$(NAME).sql" > $$f; \
-	 echo "Created $$f"
-	@echo "Next: write the SQL, update contract tests, then run:"
-	@echo "  POSTGRES_TEST_DSN=... go test ./go-core/contracttest/..."
-
-# ───── Validate ─────
 # ───── Bootstrap external assets ─────
 fetch-constants: ## Download dotaconstants JSON from OpenDota
 	@./tools/fetch-dotaconstants/fetch.sh

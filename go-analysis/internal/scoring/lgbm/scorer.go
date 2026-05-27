@@ -33,7 +33,7 @@ func (s *Scorer) Score(_ context.Context, vectors []*domain.FeatureVector) ([]do
 		if s.spec != nil {
 			expected = s.spec.Version
 		}
-		return nil, fmt.Errorf("vector spec mismatch: expected %s, got %s", expected, vectors[0].Spec().Version)
+		return nil, fmt.Errorf("vector spec mismatch: expected version %s (or feature mismatch), got version %s", expected, vectors[0].Spec().Version)
 	}
 
 	n := len(vectors)

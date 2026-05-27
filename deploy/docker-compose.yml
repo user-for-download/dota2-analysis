@@ -45,7 +45,7 @@ services:
         build:
             context: .
             dockerfile: deploy/postgres/Dockerfile
-        image: dota2-postgres-pg16:${TAG:-latest}
+        # image: dota2-postgres-pg16:${TAG:-latest}
         container_name: dota2-postgres
         <<: [*restart, *logging]
         profiles: [infra, ingestion, analytics, all]

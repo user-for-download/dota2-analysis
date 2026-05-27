@@ -31,7 +31,7 @@ func (s *FeatureSpec) Equal(other *FeatureSpec) bool {
 		return false
 	}
 	for i := range s.Features {
-		if s.Features[i] != other.Features[i] {
+		if s.Features[i].Name != other.Features[i].Name || s.Features[i].Dtype != other.Features[i].Dtype {
 			return false
 		}
 	}
