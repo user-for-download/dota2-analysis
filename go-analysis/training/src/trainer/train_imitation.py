@@ -117,6 +117,14 @@ def run(settings: Settings):
     model_path = out_dir / "model.bin"
     booster.save_model(str(model_path))
 
+    # HACK: The Go inference library (dmitryikh/leaves) does not support the
+    # 'lambdarank' objective. Because lambdarank outputs a raw score just like
+    # regression, we can safely overwrite the objective string in the saved
+    # model file to 'regression' to bypass the parser's strict validation check.
+    model_text = model_path.read_text(encoding="utf-8")
+    model_text = model_text.replace("objective=lambdarank", "objective=regression")
+    model_path.write_text(model_text, encoding="utf-8")
+
     # Save feature spec — must match FEATURES in feature_specs.py.
     spec = {
         "version": FEATURE_SPEC_VERSION,
