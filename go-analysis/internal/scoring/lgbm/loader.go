@@ -23,6 +23,36 @@ type ModelMeta struct {
 	PatchID   int32     `json:"patch_id"`
 }
 
+// UnmarshalJSON implements json.Unmarshaler with a fallback for legacy
+// timestamp formats. The Python trainer previously wrote trained_at as
+// "20060102-150405" (compact) instead of RFC 3339. This accepts both.
+func (m *ModelMeta) UnmarshalJSON(data []byte) error {
+	type modelMetaAlias ModelMeta // prevent infinite recursion
+	aux := struct {
+		TrainedAt string `json:"trained_at"`
+		*modelMetaAlias
+	}{
+		modelMetaAlias: (*modelMetaAlias)(m),
+	}
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	if aux.TrainedAt == "" {
+		return nil
+	}
+	// Try RFC 3339 first (new format).
+	if t, err := time.Parse(time.RFC3339, aux.TrainedAt); err == nil {
+		m.TrainedAt = t
+		return nil
+	}
+	// Fallback: legacy trainer format "20060102-150405".
+	if t, err := time.Parse("20060102-150405", aux.TrainedAt); err == nil {
+		m.TrainedAt = t
+		return nil
+	}
+	return fmt.Errorf("unrecognized trained_at timestamp format: %q", aux.TrainedAt)
+}
+
 // LoadModel loads a model from a directory containing model.bin, spec.json, meta.json.
 func LoadModel(modelDir string) (*Scorer, error) {
 	binPath := filepath.Join(modelDir, "model.bin")

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/user-for-download/dota2-analysis/go-analysis/internal/domain"
@@ -290,6 +291,45 @@ func TestLoadModel_MissingBin(t *testing.T) {
 	_, err := LoadModel(dir)
 	if err == nil {
 		t.Fatal("expected error for missing model.bin")
+	}
+}
+
+func TestLoadModel_LegacyTimestamp(t *testing.T) {
+	// Legacy format: "20060102-150405" (Python trainer before fix).
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "spec.json"), []byte(`{"version":"v1","features":[]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "meta.json"),
+		[]byte(`{"version":"v1","trained_at":"20260527-074946"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := LoadModel(dir)
+	if err == nil {
+		t.Fatal("expected error (missing model.bin)")
+	}
+	// Error should be about model.bin, not timestamp parse failure.
+	if !strings.Contains(err.Error(), "model.bin") {
+		t.Fatalf("expected model.bin error, got: %v", err)
+	}
+}
+
+func TestLoadModel_ISOTimestamp(t *testing.T) {
+	// New ISO 8601 format: "2006-01-02T15:04:05Z" (Python trainer after fix).
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "spec.json"), []byte(`{"version":"v1","features":[]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "meta.json"),
+		[]byte(`{"version":"v1","trained_at":"2026-05-27T07:49:46Z"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := LoadModel(dir)
+	if err == nil {
+		t.Fatal("expected error (missing model.bin)")
+	}
+	if !strings.Contains(err.Error(), "model.bin") {
+		t.Fatalf("expected model.bin error, got: %v", err)
 	}
 }
 

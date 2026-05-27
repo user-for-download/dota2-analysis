@@ -127,10 +127,11 @@ def run(settings: Settings):
     print(f"Saved spec.json with {len(FEATURES)} features")
 
     # Save metadata
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    dir_ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    iso_ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     meta = {
-        "version": f"imitation-v{settings.patch_id}-{timestamp}",
-        "trained_at": timestamp,
+        "version": f"imitation-v{settings.patch_id}-{dir_ts}",
+        "trained_at": iso_ts,
         "recall_at_5": 0.0,  # placeholder — evaluate separately
         "ndcg_at_10": 0.0,
         "best_iter": booster.best_iteration,

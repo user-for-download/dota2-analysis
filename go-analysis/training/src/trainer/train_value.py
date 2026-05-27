@@ -74,11 +74,12 @@ def run(settings: Settings):
         json.dump(spec, f, indent=2)
 
     # Save metadata
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    dir_ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    iso_ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     auc = booster.best_score.get("valid_0", {}).get("auc", 0.0)
     meta = {
-        "version": f"value-v{settings.patch_id}-{timestamp}",
-        "trained_at": timestamp,
+        "version": f"value-v{settings.patch_id}-{dir_ts}",
+        "trained_at": iso_ts,
         "auc": auc,
         "best_iter": booster.best_iteration,
         "patch_id": settings.patch_id,
