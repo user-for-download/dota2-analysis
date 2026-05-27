@@ -17,7 +17,6 @@ type CircuitBreaker struct {
 
 	mu      sync.Mutex
 	stopCh  chan struct{}
-	stopped bool
 }
 
 const (
@@ -98,9 +97,9 @@ func (cb *CircuitBreaker) RecordSuccess() {
 func (cb *CircuitBreaker) stopTimer() {
 	cb.mu.Lock()
 	defer cb.mu.Unlock()
-	if cb.stopCh != nil && !cb.stopped {
+	if cb.stopCh != nil {
 		close(cb.stopCh)
-		cb.stopped = true
+		cb.stopCh = nil
 	}
 }
 
@@ -109,7 +108,6 @@ func (cb *CircuitBreaker) startTimer() {
 	defer cb.mu.Unlock()
 	next := make(chan struct{})
 	cb.stopCh = next
-	cb.stopped = false
 	go func(stop chan struct{}) {
 		select {
 		case <-stop:

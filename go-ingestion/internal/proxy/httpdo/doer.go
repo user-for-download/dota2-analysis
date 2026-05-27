@@ -218,7 +218,6 @@ func (d *Doer) doWithLease(ctx context.Context, req *http.Request, attempt int) 
 		// Eager-read the body inside the lease boundary to catch slow-proxy timeouts
 		// and guarantee the proxy is not overloaded by premature release.
 		bodyBytes, err := io.ReadAll(resp.Body)
-		resp.Body.Close()
 		if err != nil {
 			lease.MarkFailure(context.WithoutCancel(ctx), fmt.Errorf("read body: %w", err))
 			return nil, err
@@ -257,7 +256,18 @@ func (d *Doer) doDirect(ctx context.Context, req *http.Request) (*http.Response,
 	}
 	directEntry.lastUsed = time.Now()
 	d.mu.Unlock()
-	return directEntry.client.Do(req)
+	
+	resp, err := directEntry.client.Do(req)
+	if err == nil {
+		if resp.StatusCode >= 400 {
+			resp.Body.Close()
+			if resp.StatusCode == http.StatusTooManyRequests {
+				return nil, fmt.Errorf("%w: HTTP %d", proxy.ErrRateLimited, resp.StatusCode)
+			}
+			return nil, &permanentHTTPError{StatusCode: resp.StatusCode}
+		}
+	}
+	return resp, err
 }
 
 func (d *Doer) getClient(proxyURL string) (*http.Client, error) {

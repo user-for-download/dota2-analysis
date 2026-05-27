@@ -132,7 +132,8 @@ func (r *Runner) runOne(ctx context.Context, s RunSource) error {
 
 	shouldRun, err := r.gate.ShouldRun(ctx, name)
 	if err != nil {
-		log.Warn("source: gate check failed", "err", err)
+		log.Error("source: gate check failed", "err", err)
+		return fmt.Errorf("gate check: %w", err)
 	}
 	if !shouldRun {
 		log.Info("source: skipped by gate")

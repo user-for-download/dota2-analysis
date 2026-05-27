@@ -13,7 +13,10 @@ func decodeObjectives(raw []rawObjective) []domain.Objective {
 	}
 	rows := make([]domain.Objective, 0, len(raw))
 	for _, o := range raw {
-		rawJSON, _ := json.Marshal(o)
+		rawJSON, err := json.Marshal(o)
+		if err != nil {
+			continue
+		}
 		keyStr := ""
 		if k := objectiveKeyAsString(o.Key); k != nil {
 			keyStr = *k

@@ -264,20 +264,27 @@ func (q *Queue) routeDLQ(ctx context.Context, t queue.Task, reason string) error
 	if q.cfg.DLQStream == "" {
 		q.log.Warn("DLQ not configured; dropping task", "id", t.ID, "reason", reason, "retries", t.RetryCount)
 		if t.ID != "" {
-			_ = q.Ack(ctx, t.ID)
+			if err := q.Ack(ctx, t.ID); err != nil {
+				return fmt.Errorf("ack dropped task: %w", err)
+			}
 		}
 		return nil
+	}
+
+	values := map[string]any{
+		fieldPayload: t.Payload,
+		fieldRetry:   strconv.Itoa(t.RetryCount),
+		fieldReason:  reason,
+	}
+	for k, v := range t.Headers {
+		values["h:"+k] = v
 	}
 
 	if t.ID == "" {
 		// No original message to ack; just add to DLQ.
 		err := q.rdb.XAdd(ctx, &goredis.XAddArgs{
 			Stream: q.cfg.DLQStream,
-			Values: map[string]any{
-				fieldPayload: t.Payload,
-				fieldRetry:   strconv.Itoa(t.RetryCount),
-				fieldReason:  reason,
-			},
+			Values: values,
 		}).Err()
 		if err != nil {
 			return fmt.Errorf("xadd dlq: %w", err)
@@ -287,11 +294,11 @@ func (q *Queue) routeDLQ(ctx context.Context, t queue.Task, reason string) error
 
 	// Atomic DLQ + ack to prevent duplication on crash.
 	keys := []string{q.cfg.DLQStream, q.cfg.Stream, q.cfg.Group}
-	args := []any{q.cfg.MaxLen, t.ID,
-		fieldPayload, t.Payload,
-		fieldRetry, strconv.Itoa(t.RetryCount),
-		fieldReason, reason,
+	args := []any{q.cfg.MaxLen, t.ID}
+	for k, v := range values {
+		args = append(args, k, v)
 	}
+	
 	_, err := luaRouteDLQAtomic.Run(ctx, q.rdb, keys, args...).Int64()
 	if err != nil {
 		return fmt.Errorf("atomic dlq: %w", err)

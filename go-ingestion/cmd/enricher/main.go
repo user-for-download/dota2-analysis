@@ -162,7 +162,7 @@ func main() {
 		localRunner, err = enrich.NewRunner(enrich.RunnerOptions{
 			Sources: localSrcs,
 			HTTP:    localHTTP,
-			Gate:    runGate,
+			Gate:    enrichgate.Always{},
 			Logger:  log,
 		})
 		if err != nil {

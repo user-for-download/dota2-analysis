@@ -57,7 +57,11 @@ func Run(ctx context.Context, dsn string, fsys fs.FS, log *slog.Logger) error {
 	if err != nil {
 		return fmt.Errorf("acquire dedicated connection: %w", err)
 	}
-	defer conn.Close()
+	defer func() {
+		if cerr := conn.Close(); cerr != nil {
+			log.Warn("failed to close connection", "err", cerr)
+		}
+	}()
 
 	locked, err := tryAdvisoryLock(ctx, conn)
 	if err != nil {

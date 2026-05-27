@@ -11,20 +11,6 @@ import (
 	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/proxy"
 )
 
-type Direct struct {
-	Client *http.Client
-}
-
-func (d *Direct) Get(ctx context.Context, rawURL string) (*http.Response, error) {
-	req, err := http.NewRequestWithContext(ctx, "GET", rawURL, nil)
-	if err != nil {
-		return nil, err
-	}
-	return d.Client.Do(req)
-}
-
-var _ HTTPClient = (*Direct)(nil)
-
 type ProxiedConfig struct {
 	Pool            proxy.Pool
 	Hold            time.Duration

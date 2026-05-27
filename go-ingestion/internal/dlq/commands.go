@@ -200,11 +200,11 @@ func extractMatchID(payload any) string {
 // from the original DLQ message.
 func replayValues(dlqMsg redis.XMessage, payload any) map[string]any {
 	vals := map[string]any{"p": payload, "r": "0"}
-	if tp, ok := dlqMsg.Values["_otel_traceparent"]; ok {
-		vals["_otel_traceparent"] = tp
+	if tp, ok := dlqMsg.Values["h:traceparent"]; ok {
+		vals["h:traceparent"] = tp
 	}
-	if ts, ok := dlqMsg.Values["_otel_tracestate"]; ok {
-		vals["_otel_tracestate"] = ts
+	if ts, ok := dlqMsg.Values["h:tracestate"]; ok {
+		vals["h:tracestate"] = ts
 	}
 	return vals
 }
