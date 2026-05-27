@@ -173,15 +173,17 @@ func main() {
 
 	// ── Matches cycle ──────────────────────────────────────────────
 	mc, err := matches.New(fetchQ, doer, sink, matches.Config{
-		ExplorerURL: discCfg.UpstreamURL,
-		Queries:     queries,
-		DefaultKey:  discCfg.DefaultQueryKey,
-		Interval:    discCfg.Interval,
-		RunAtStart:  discCfg.RunAtStart,
-		Logger:      log,
-		Dedup:       dedupSeen,
-		FileKey:     *fileKey,
-		Reader:      matchReader,
+		ExplorerURL:   discCfg.UpstreamURL,
+		Queries:       queries,
+		DefaultKey:    discCfg.DefaultQueryKey,
+		Interval:      discCfg.Interval,
+		RunAtStart:    discCfg.RunAtStart,
+		MaxRetries:    discCfg.MaxRetries,
+		RetryBackoff:  discCfg.RetryBackoff,
+		Logger:        log,
+		Dedup:         dedupSeen,
+		FileKey:       *fileKey,
+		Reader:        matchReader,
 	})
 	must(log, "matches cycle", err)
 

@@ -22,15 +22,17 @@ import (
 
 type Config struct {
 	ExplorerURL string
-	Queries    map[string]string
-	DefaultKey string
-	Interval  time.Duration
-	RunAtStart bool
-	Logger   *slog.Logger
-	Dedup    dedup.Seen
-	FileKey  string
-	Doer    discovery.HTTPDoer
-	Reader  matchstore.MatchReader
+	Queries     map[string]string
+	DefaultKey  string
+	Interval    time.Duration
+	RunAtStart  bool
+	MaxRetries  int
+	RetryBackoff time.Duration
+	Logger      *slog.Logger
+	Dedup       dedup.Seen
+	FileKey     string
+	Doer        discovery.HTTPDoer
+	Reader      matchstore.MatchReader
 }
 
 type Cycle struct {
@@ -58,6 +60,12 @@ func New(out queue.Publisher, doer discovery.HTTPDoer, m metrics.Sink, cfg Confi
 	}
 	if _, ok := cfg.Queries[cfg.DefaultKey]; !ok {
 		return nil, fmt.Errorf("matches: default query %q not found", cfg.DefaultKey)
+	}
+	if cfg.MaxRetries <= 0 {
+		cfg.MaxRetries = 4
+	}
+	if cfg.RetryBackoff <= 0 {
+		cfg.RetryBackoff = 500 * time.Millisecond
 	}
 	log := cfg.Logger
 	if log == nil {
@@ -91,10 +99,32 @@ func (c *Cycle) RunOnce(ctx context.Context) error {
 		return fmt.Errorf("query %q not found", key)
 	}
 
-	ids, err := c.fetchMatchIDs(ctx, sql)
-	if err != nil {
+	var ids []int64
+	var lastErr error
+	var err error
+	for attempt := 1; attempt <= c.cfg.MaxRetries; attempt++ {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		ids, err = c.fetchMatchIDs(ctx, sql)
+		if err == nil {
+			break
+		}
+		lastErr = err
+		c.log.Warn("fetch match ids failed, retrying",
+			"key", key, "attempt", attempt, "max_retries", c.cfg.MaxRetries, "err", err,
+		)
+		if attempt < c.cfg.MaxRetries {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(c.cfg.RetryBackoff):
+			}
+		}
+	}
+	if lastErr != nil {
 		c.m.FetchFailure(ctx, metrics.KindHTTP)
-		return fmt.Errorf("fetch match ids (%s): %w", key, err)
+		return fmt.Errorf("fetch match ids (%s): %w", key, lastErr)
 	}
 	c.log.Info("query returned", "key", key, "count", len(ids))
 
