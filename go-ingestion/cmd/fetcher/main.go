@@ -21,11 +21,12 @@ import (
 	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/queue/middleware"
 	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/queue/redisstreams"
 	storageredis "github.com/user-for-download/dota2-analysis/go-ingestion/internal/storage/redis"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/worker"
 	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/worker/fetcher"
 )
 
 func main() {
-	log := bootstrap.NewLogger(slog.NewJSONHandler(os.Stdout, nil))
+	log := bootstrap.NewLoggerFromEnv()
 
 	// ── Load individual configs instead of monolithic config.Load() ──
 	redisCfg := storageredis.LoadConfig()
@@ -33,6 +34,8 @@ func main() {
 	payloadCfg := payload.LoadConfig()
 	fetcherCfg := fetcher.LoadConfig()
 	proxyCfg := proxy.LoadConfig()
+
+	useLocal := fetcherCfg.LocalURL != ""
 
 	// ── Context with OS signal handling ──────────────────────────────
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -67,19 +70,39 @@ func main() {
 	must(log, "redis", err)
 	defer rdb.Close()
 
-	// ── Proxy pool ───────────────────────────────────────────────────
-	pool, err := bootstrap.ProxyPool(rdb.Master(), proxyCfg, log)
-	must(log, "proxy pool", err)
+	// ── Proxy pool (only needed when NOT using local URL) ────────────
+	var doer worker.HTTPDoer
+	if !useLocal {
+		pool, err := bootstrap.ProxyPool(rdb.Master(), proxyCfg, log)
+		must(log, "proxy pool", err)
 
-	// ── Wait for proxies when direct access is disabled ──────────────
-	if !fetcherCfg.AllowDirect {
-		if err := bootstrap.WaitForProxies(ctx, pool, bootstrap.WaitConfig{
-			MinSize:      proxyCfg.MinPoolSize,
-			Timeout:      fetcherCfg.WaitTimeout,
-			PollInterval: 2 * time.Second,
-		}, log); err != nil {
-			must(log, "wait for proxies", err)
+		// ── Wait for proxies when direct access is disabled ──────────
+		if !fetcherCfg.AllowDirect {
+			if err := bootstrap.WaitForProxies(ctx, pool, bootstrap.WaitConfig{
+				MinSize:      proxyCfg.MinPoolSize,
+				Timeout:      fetcherCfg.WaitTimeout,
+				PollInterval: 2 * time.Second,
+			}, log); err != nil {
+				must(log, "wait for proxies", err)
+			}
 		}
+
+		// ── HTTP Doer (proxy-aware HTTP client) ──────────────────────
+		d, err := httpdo.New(httpdo.Config{
+			Pool:        pool,
+			Hold:        proxyCfg.Hold,
+			Timeout:     fetcherCfg.HTTPTimeout,
+			MaxRetries:  fetcherCfg.MaxProxyRetries,
+			Backoff:     fetcherCfg.ProxyBackoff,
+			AllowDirect: fetcherCfg.AllowDirect,
+			Logger:      log,
+		})
+		must(log, "http doer", err)
+		defer d.Close()
+		doer = d
+	} else {
+		log.Info("fetcher: FETCHER_UPSTREAM_LOCAL_URL set — bypassing proxy pool and retries",
+			"localURL", fetcherCfg.LocalURL)
 	}
 
 	// ── Payload store ────────────────────────────────────────────────
@@ -121,19 +144,6 @@ func main() {
 	})
 	must(log, "parse queue", err)
 
-	// ── HTTP Doer (proxy-aware HTTP client) ──────────────────────────
-	doer, err := httpdo.New(httpdo.Config{
-		Pool:        pool,
-		Hold:        proxyCfg.Hold,
-		Timeout:     fetcherCfg.HTTPTimeout,
-		MaxRetries:  fetcherCfg.MaxProxyRetries,
-		Backoff:     fetcherCfg.ProxyBackoff,
-		AllowDirect: fetcherCfg.AllowDirect,
-		Logger:      log,
-	})
-	must(log, "http doer", err)
-	defer doer.Close()
-
 	// ── Apply Telemetry Decorators ───────────────────────────────────
 	// Wrap the raw queues so OpenTelemetry context headers are automatically
 	// injected into published messages and extracted from received messages.
@@ -144,6 +154,7 @@ func main() {
 	// Pass the decorated queues to the worker so OTel traces link Fetch→Parse.
 	w, err := fetcher.New(tracedSub, tracedPub, doer, store, metrics, fetcher.Config{
 		UpstreamURL: fetcherCfg.UpstreamURL,
+		LocalURL:    fetcherCfg.LocalURL,
 		Batch:       fetcherCfg.Batch,
 		Block:       fetcherCfg.Block,
 		HTTPTimeout: fetcherCfg.HTTPTimeout,

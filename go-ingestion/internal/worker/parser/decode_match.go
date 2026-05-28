@@ -3,6 +3,7 @@ package parser
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 
 	"github.com/user-for-download/dota2-analysis/go-core/domain"
 )
@@ -86,7 +87,7 @@ func decodeMatchRoot(rm *rawMatch) domain.Match {
 			ReplayURL:  derefStr(rm.ReplayURL),
 			Pauses:     rm.Pauses,
 		},
-		IsParsed: isMatchParsed(*rm),
+		IsParsed: isMatchParsed(*rm, rm.MatchID),
 	}
 }
 
@@ -117,8 +118,9 @@ func validPlayerSlot(s int16) bool {
 	return (s >= 0 && s <= 4) || (s >= 128 && s <= 132)
 }
 
-func isMatchParsed(rm rawMatch) bool {
+func isMatchParsed(rm rawMatch, matchID int64) bool {
 	if len(rm.Players) == 0 {
+		slog.Debug("match unparsed: no players array", "match_id", matchID)
 		return false
 	}
 	for _, p := range rm.Players {
@@ -126,5 +128,15 @@ func isMatchParsed(rm rawMatch) bool {
 			return true
 		}
 	}
+	// Log exactly what is missing from the first player to prove it's unparsed
+	p0 := rm.Players[0]
+	slog.Debug("match unparsed: missing replay data from upstream API",
+		"match_id", matchID,
+		"players_count", len(rm.Players),
+		"p0_gold_t_len", len(p0.GoldT),
+		"p0_xp_t_len", len(p0.XPT),
+		"p0_has_purchase_log", p0.PurchaseLog != nil,
+		"p0_has_ability_uses", p0.AbilityUses != nil,
+	)
 	return false
 }

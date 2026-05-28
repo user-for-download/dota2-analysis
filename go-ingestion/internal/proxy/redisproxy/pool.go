@@ -101,6 +101,7 @@ func (p *Pool) Acquire(ctx context.Context, hold time.Duration) (*proxy.Lease, e
 			return nil, proxy.ErrRateLimited
 		}
 	}
+	p.log.Debug("redisproxy: acquiring lease", "hold", hold)
 
 	token, err := newToken()
 	if err != nil {
@@ -127,6 +128,7 @@ func (p *Pool) Acquire(ctx context.Context, hold time.Duration) (*proxy.Lease, e
 	if !ok || url == "" {
 		return nil, proxy.ErrNoProxy
 	}
+	p.log.Debug("redisproxy: lease acquired", "proxy", url, "token", token)
 
 	return proxy.NewLease(
 		url,
@@ -288,6 +290,7 @@ func (p *Pool) recordSuccess(url string) func(context.Context) error {
 			url, p.cfg.Ranking.SuccessBoost,
 		).Int64()
 		if err != nil && !errors.Is(err, goredis.Nil) {
+			p.log.Debug("redisproxy: failed to record success in redis", "url", url, "err", err)
 			p.log.Warn("record success failed", "url", url, "err", err)
 			return err
 		}
@@ -313,10 +316,12 @@ func (p *Pool) recordFailure(url string) func(context.Context, error) error {
 			url, p.cfg.Ranking.FailurePenalty, p.cfg.MaxFailures, msg, coolSecs,
 		).Int64()
 		if err != nil && !errors.Is(err, goredis.Nil) {
+			p.log.Debug("redisproxy: failed to record failure in redis", "url", url, "err", err)
 			p.log.Warn("record failure failed", "url", url, "err", err)
 			return err
 		}
 		if res == 1 {
+			p.log.Debug("redisproxy: proxy moved to cooldown", "url", url)
 			p.log.Info("proxy evicted to cooldown after consecutive failures",
 				"url", url, "threshold", p.cfg.MaxFailures, "cooldown_seconds", coolSecs)
 		}

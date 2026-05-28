@@ -28,7 +28,7 @@ import (
 )
 
 func main() {
-	log := bootstrap.NewLogger(slog.NewJSONHandler(os.Stdout, nil))
+	log := bootstrap.NewLoggerFromEnv()
 
 	// ── Load configs from domain packages ──────────────────────────
 	redisCfg := storageredis.LoadConfig()

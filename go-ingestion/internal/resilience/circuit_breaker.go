@@ -1,6 +1,7 @@
 package resilience
 
 import (
+	"log/slog"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -61,6 +62,7 @@ func (cb *CircuitBreaker) RecordFailure() {
 	}
 	n := cb.failures.Add(1)
 	if n >= cb.threshold && atomic.CompareAndSwapInt32(&cb.state, circuitClosed, circuitOpen) {
+		slog.Warn("circuit breaker OPEN", "failures", n, "threshold", cb.threshold)
 		cb.successes.Store(0)
 		cb.failures.Store(0)
 		cb.stopTimer()
@@ -76,6 +78,7 @@ func (cb *CircuitBreaker) RecordSuccess() {
 			if !atomic.CompareAndSwapInt32(&cb.state, circuitHalfOpen, circuitClosed) {
 				return
 			}
+			slog.Info("circuit breaker CLOSED", "successes", s)
 			cb.successes.Store(0)
 			cb.failures.Store(0)
 		}
@@ -113,6 +116,7 @@ func (cb *CircuitBreaker) startTimer() {
 		case <-stop:
 			return
 		case <-time.After(cb.halfOpenAfter):
+			slog.Info("circuit breaker HALF-OPEN", "after", cb.halfOpenAfter)
 			atomic.StoreInt32(&cb.state, circuitHalfOpen)
 		}
 	}(next)

@@ -49,6 +49,7 @@ var _ parser.Ingester = (*Ingester)(nil)
 func (i *Ingester) Ingest(ctx context.Context, m domain.Match) error {
 	// 1. Attempt database ingestion FIRST.
 	// Dedup MarkSeen happens only after a successful DB commit.
+	i.log.Debug("ingester: starting db transaction", "match_id", m.MatchID, "is_parsed", m.IsParsed)
 	err := i.repo.IngestMatch(ctx, m)
 	if err != nil {
 		if isDuplicateConstraint(err) {
@@ -70,6 +71,7 @@ func (i *Ingester) Ingest(ctx context.Context, m domain.Match) error {
 	// This prevents poisoning the Bloom filter on transient DB errors.
 	if i.dedup != nil {
 		key := strconv.FormatInt(int64(m.MatchID), 10)
+		i.log.Debug("ingester: marking match as seen in dedup", "match_id", m.MatchID)
 		if _, err := i.dedup.MarkSeen(ctx, key); err != nil {
 			i.log.Warn("failed to mark match as seen in dedup", "match_id", m.MatchID, "err", err)
 		}

@@ -152,6 +152,7 @@ func (q *Queue) Pop(ctx context.Context, batch int, block time.Duration) ([]queu
 	if batch <= 0 {
 		batch = 1
 	}
+	q.log.Debug("queue: popping messages", "batch", batch, "block", block)
 	res, err := q.rdb.XReadGroup(ctx, &goredis.XReadGroupArgs{
 		Group:    q.cfg.Group,
 		Consumer: q.cfg.Consumer,
@@ -190,6 +191,7 @@ func (q *Queue) Pop(ctx context.Context, batch int, block time.Duration) ([]queu
 }
 
 func (q *Queue) Ack(ctx context.Context, taskID string) error {
+	q.log.Debug("queue: acking message", "task_id", taskID)
 	if err := q.rdb.XAck(ctx, q.cfg.Stream, q.cfg.Group, taskID).Err(); err != nil {
 		return fmt.Errorf("xack: %w", err)
 	}
@@ -200,6 +202,7 @@ func (q *Queue) Ack(ctx context.Context, taskID string) error {
 }
 
 func (q *Queue) Retry(ctx context.Context, t queue.Task, reason string) error {
+	q.log.Debug("queue: retrying message", "task_id", t.ID, "reason", reason, "retry_count", t.RetryCount+1)
 	t.RetryCount++
 
 	if q.cfg.Policy.ShouldDLQ(t.RetryCount) {
@@ -261,6 +264,7 @@ func (q *Queue) scheduleAsyncRetry(ctx context.Context, t queue.Task) error {
 }
 
 func (q *Queue) routeDLQ(ctx context.Context, t queue.Task, reason string) error {
+	q.log.Debug("queue: routing to DLQ", "task_id", t.ID, "reason", reason)
 	if q.cfg.DLQStream == "" {
 		q.log.Warn("DLQ not configured; dropping task", "id", t.ID, "reason", reason, "retries", t.RetryCount)
 		if t.ID != "" {

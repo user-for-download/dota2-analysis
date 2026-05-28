@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/metrics"
@@ -24,6 +25,7 @@ type Task struct {
 
 type Config struct {
 	UpstreamURL string
+	LocalURL    string // NEW — direct URL bypassing proxy pool
 	PayloadTTL  time.Duration
 	HTTPTimeout time.Duration
 	Batch       int // kept for backward compat; Subscribe uses queue defaults
@@ -32,13 +34,14 @@ type Config struct {
 }
 
 type Fetcher struct {
-	in    queue.Subscriber
-	out   queue.Publisher
-	doer  worker.HTTPDoer
-	store payload.Store
-	m     metrics.Sink
-	cfg   Config
-	log   *slog.Logger
+	in          queue.Subscriber
+	out         queue.Publisher
+	doer        worker.HTTPDoer
+	store       payload.Store
+	m           metrics.Sink
+	cfg         Config
+	log         *slog.Logger
+	localClient *http.Client // NEW — direct client when LocalURL is set
 }
 
 func New(
@@ -52,17 +55,18 @@ func New(
 	if in == nil || out == nil {
 		return nil, fmt.Errorf("fetcher: in/out queues are required")
 	}
-	if doer == nil {
-		return nil, fmt.Errorf("fetcher: HTTPDoer is required")
-	}
 	if store == nil {
 		return nil, fmt.Errorf("fetcher: payload store is required")
 	}
 	if m == nil {
 		return nil, fmt.Errorf("fetcher: metrics sink is required")
 	}
-	if cfg.UpstreamURL == "" {
-		return nil, fmt.Errorf("fetcher: UpstreamURL is required")
+	// Allow nil doer ONLY when LocalURL is configured (direct local fetch).
+	if doer == nil && cfg.LocalURL == "" {
+		return nil, fmt.Errorf("fetcher: HTTPDoer is required when LocalURL is not set")
+	}
+	if cfg.UpstreamURL == "" && cfg.LocalURL == "" {
+		return nil, fmt.Errorf("fetcher: UpstreamURL or LocalURL is required")
 	}
 	if cfg.Batch <= 0 {
 		cfg.Batch = 10
@@ -81,10 +85,22 @@ func New(
 		log = slog.Default()
 	}
 
+	var localClient *http.Client
+	if cfg.LocalURL != "" {
+		localClient = &http.Client{Timeout: cfg.HTTPTimeout}
+		log.Info("fetcher: local URL configured, bypassing proxy pool",
+			"localURL", cfg.LocalURL)
+	}
+
 	return &Fetcher{
-		in: in, out: out,
-		doer: doer, store: store, m: m, cfg: cfg,
-		log:  log.With("component", "fetcher"),
+		in:          in,
+		out:         out,
+		doer:        doer,
+		store:       store,
+		m:           m,
+		cfg:         cfg,
+		log:         log.With("component", "fetcher"),
+		localClient: localClient,
 	}, nil
 }
 
@@ -105,6 +121,7 @@ func (f *Fetcher) handleMessage(ctx context.Context, msg queue.Message) error {
 		f.log.Warn("malformed fetch task", "id", msg.ID, "err", err)
 		return queue.ErrDrop // permanent decode error — drop, don't retry
 	}
+	f.log.Debug("fetcher: processing task", "match_id", body.MatchID, "msg_id", msg.ID)
 
 	blob, err := f.fetchOne(ctx, body.MatchID)
 	if err != nil {
@@ -121,10 +138,13 @@ func (f *Fetcher) handleMessage(ctx context.Context, msg queue.Message) error {
 	f.log.Info("fetch ok", "match_id", body.MatchID, "bytes", len(blob))
 
 	key := strconv.FormatInt(body.MatchID, 10)
+	f.log.Debug("fetcher: saving payload to store", "match_id", body.MatchID, "key", key, "ttl", f.cfg.PayloadTTL)
 	if err := f.store.Put(ctx, key, blob, f.cfg.PayloadTTL); err != nil {
 		f.m.FetchFailure(ctx, metrics.KindPayload)
+		f.log.Error("fetcher: failed to save payload", "match_id", body.MatchID, "err", err)
 		return fmt.Errorf("payload: %w", err)
 	}
+	f.log.Debug("fetcher: payload saved successfully", "match_id", body.MatchID)
 
 	next, err := json.Marshal(Task{MatchID: body.MatchID})
 	if err != nil {
@@ -144,7 +164,35 @@ func (f *Fetcher) handleMessage(ctx context.Context, msg queue.Message) error {
 }
 
 func (f *Fetcher) fetchOne(ctx context.Context, matchID int64) ([]byte, error) {
+	// ── Fast path: direct local fetch (no proxy, no retries, no backoff) ──
+	if f.cfg.LocalURL != "" {
+		targetURL := strings.TrimRight(f.cfg.LocalURL, "/") + "/" + strconv.FormatInt(matchID, 10)
+		f.log.Debug("fetcher: attempting local fetch", "url", targetURL)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, targetURL, nil)
+		if err != nil {
+			return nil, fmt.Errorf("fetcher: build local request: %w", err)
+		}
+
+		resp, err := f.localClient.Do(req)
+		if err != nil {
+			return nil, fmt.Errorf("fetcher: local fetch: %w", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode >= 400 {
+			return nil, &httpdo.PermanentHTTPError{StatusCode: resp.StatusCode}
+		}
+
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return nil, fmt.Errorf("fetcher: read local response: %w", err)
+		}
+		return body, nil
+	}
+
+	// ── Normal path: proxy-aware fetch via doer ──
 	targetURL := f.cfg.UpstreamURL + "/" + strconv.FormatInt(matchID, 10)
+	f.log.Debug("fetcher: attempting proxy fetch", "url", targetURL)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, targetURL, nil)
 	if err != nil {

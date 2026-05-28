@@ -52,6 +52,12 @@ func NewLogger(h slog.Handler) *slog.Logger {
 	return corebootstrap.NewLogger(h)
 }
 
+// NewLoggerFromEnv creates a JSON logger that respects the LOG_LEVEL env var.
+// Defaults to INFO if LOG_LEVEL is unset or invalid.
+func NewLoggerFromEnv() *slog.Logger {
+	return corebootstrap.NewLoggerFromEnv()
+}
+
 // InitTelemetry sets up OTel tracing.
 // Delegates to go-dota2-core/bootstrap.InitTelemetry.
 func InitTelemetry(ctx context.Context, serviceName string, endpoint string, sampleRate float64) (func(context.Context) error, error) {

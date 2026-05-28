@@ -11,6 +11,7 @@ import (
 // that the fetcher package has no dependency on a specific logging framework.
 type EnvConfig struct {
 	UpstreamURL     string
+	LocalURL        string // NEW — direct URL bypassing proxy pool
 	Batch           int
 	Block           time.Duration
 	HTTPTimeout     time.Duration
@@ -28,6 +29,7 @@ type EnvConfig struct {
 func LoadConfig() EnvConfig {
 	return EnvConfig{
 		UpstreamURL:     getStr("FETCHER_UPSTREAM_URL", ""),
+		LocalURL:        getStr("FETCHER_UPSTREAM_LOCAL_URL", ""),
 		Batch:           getInt("FETCHER_BATCH", 10),
 		Block:           getDur("FETCHER_BLOCK", 2*time.Second),
 		HTTPTimeout:     getDur("FETCHER_HTTP_TIMEOUT", 30*time.Second),

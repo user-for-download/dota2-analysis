@@ -188,7 +188,7 @@ services:
         depends_on:
             redis: { condition: service_healthy }
             migrator: { condition: service_completed_successfully }
-        networks: [ingestion-net, infra-net]
+        networks: [ingestion-net, infra-net, ocode-net]
 
     parser:
         image: go-dota2-parser:${TAG:-latest}
@@ -299,3 +299,7 @@ networks:
     analytics-net:
         driver: bridge
         internal: false # api gateway exposes :8080
+
+    ocode-net:
+        external: true
+        name: ocode_default

@@ -31,6 +31,7 @@ func (s *Store) IngestMatch(ctx context.Context, m domain.Match) error {
 	if m.MatchID == 0 || m.StartTime == 0 {
 		return fmt.Errorf("match: id and start_time required")
 	}
+	s.log.Debug("matchpg: starting ingestion transaction", "match_id", int64(m.MatchID), "parsed", m.IsParsed)
 
 	err := pgx.BeginFunc(ctx, s.db, func(tx pgx.Tx) error {
 		heroIDs := collectHeroIDs(m)
@@ -41,8 +42,10 @@ func (s *Store) IngestMatch(ctx context.Context, m domain.Match) error {
 			}
 		}
 
+		s.log.Debug("matchpg: upserting match root", "match_id", int64(m.MatchID))
 		_, err := s.upsertMatchRoot(ctx, tx, m)
 		if err != nil {
+			s.log.Error("matchpg: failed to upsert match root", "match_id", int64(m.MatchID), "err", err)
 			return err
 		}
 
@@ -87,6 +90,7 @@ func (s *Store) IngestMatch(ctx context.Context, m domain.Match) error {
 		return nil
 	})
 	if err != nil {
+		s.log.Error("matchpg: ingestion transaction failed", "match_id", int64(m.MatchID), "err", err)
 		return err
 	}
 	s.log.Info("match ingested", "match_id", int64(m.MatchID), "parsed", m.IsParsed)

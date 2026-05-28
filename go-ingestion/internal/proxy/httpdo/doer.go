@@ -115,6 +115,7 @@ func (d *Doer) Do(ctx context.Context, req *http.Request) (*http.Response, error
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
+		d.log.Debug("httpdo: attempting request", "url", req.URL.String(), "attempt", attempt, "max_retries", d.cfg.MaxRetries)
 
 		resp, err := d.doWithLease(ctx, req, attempt)
 		if err == nil {
@@ -138,6 +139,7 @@ func (d *Doer) Do(ctx context.Context, req *http.Request) (*http.Response, error
 		}
 
 		if isProxyFault(err) {
+			d.log.Debug("httpdo: proxy-fault detected, switching proxy", "attempt", attempt, "err", err)
 			d.log.Debug("proxy-fault error, switching proxy",
 				"attempt", attempt,
 				"max_retries", d.cfg.MaxRetries,
@@ -146,6 +148,7 @@ func (d *Doer) Do(ctx context.Context, req *http.Request) (*http.Response, error
 			continue
 		}
 
+		d.log.Debug("httpdo: request failed, retrying", "attempt", attempt, "err", err)
 		d.log.Debug("request failed, retrying with new proxy",
 			"attempt", attempt,
 			"max_retries", d.cfg.MaxRetries,
@@ -159,6 +162,7 @@ func (d *Doer) Do(ctx context.Context, req *http.Request) (*http.Response, error
 	}
 
 	if d.cfg.AllowDirect {
+		d.log.Warn("httpdo: all proxy attempts failed, falling back to direct", "url", req.URL.String(), "err", lastErr)
 		d.log.Warn("all proxy attempts failed, falling back to direct",
 			"url", req.URL.String(),
 			"err", lastErr,
@@ -193,6 +197,7 @@ func (d *Doer) doWithLease(ctx context.Context, req *http.Request, attempt int) 
 		return nil, fmt.Errorf("acquire proxy: %w", err)
 	}
 	defer lease.Release(context.WithoutCancel(ctx))
+	d.log.Debug("httpdo: acquired proxy lease", "proxy", lease.URL, "attempt", attempt, "target", req.URL.String())
 
 	proxyURL := lease.URL
 	client, err := d.getClient(proxyURL)
@@ -204,6 +209,7 @@ func (d *Doer) doWithLease(ctx context.Context, req *http.Request, attempt int) 
 	resp, err := client.Do(req)
 	if err == nil {
 		if resp.StatusCode >= 400 {
+			d.log.Debug("httpdo: proxy returned HTTP error", "proxy", proxyURL, "status", resp.StatusCode, "target", req.URL.String())
 			resp.Body.Close()
 			if resp.StatusCode == http.StatusTooManyRequests {
 				err = fmt.Errorf("%w: HTTP %d", proxy.ErrRateLimited, resp.StatusCode)
@@ -219,12 +225,14 @@ func (d *Doer) doWithLease(ctx context.Context, req *http.Request, attempt int) 
 		// and guarantee the proxy is not overloaded by premature release.
 		bodyBytes, err := io.ReadAll(resp.Body)
 		if err != nil {
+			d.log.Debug("httpdo: failed to read response body", "proxy", proxyURL, "err", err)
 			lease.MarkFailure(context.WithoutCancel(ctx), fmt.Errorf("read body: %w", err))
 			return nil, err
 		}
 
 		// Reconstruct the response body with an in-memory buffer so downstream consumers
 		// can read it instantly without any further network calls.
+		d.log.Debug("httpdo: request successful via proxy", "proxy", proxyURL, "status", resp.StatusCode, "bytes", len(bodyBytes))
 		resp.Body = io.NopCloser(bytes.NewReader(bodyBytes))
 		lease.MarkSuccess(context.WithoutCancel(ctx))
 		return resp, nil
@@ -256,7 +264,8 @@ func (d *Doer) doDirect(ctx context.Context, req *http.Request) (*http.Response,
 	}
 	directEntry.lastUsed = time.Now()
 	d.mu.Unlock()
-	
+
+	d.log.Debug("httpdo: attempting direct connection", "target", req.URL.String())
 	resp, err := directEntry.client.Do(req)
 	if err == nil {
 		if resp.StatusCode >= 400 {
@@ -267,6 +276,7 @@ func (d *Doer) doDirect(ctx context.Context, req *http.Request) (*http.Response,
 			return nil, &permanentHTTPError{StatusCode: resp.StatusCode}
 		}
 	}
+	d.log.Debug("httpdo: direct connection result", "target", req.URL.String(), "err", err)
 	return resp, err
 }
 

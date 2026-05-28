@@ -36,7 +36,7 @@ import (
 )
 
 func main() {
-	log := bootstrap.NewLogger(slog.NewJSONHandler(os.Stdout, nil))
+	log := bootstrap.NewLoggerFromEnv()
 
 	fs := flag.NewFlagSet("discoverer", flag.ExitOnError)
 	fileKey := fs.String("file", "", "run only this query key (filename without .sql); one-shot (matches only)")

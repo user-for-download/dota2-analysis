@@ -20,7 +20,7 @@ import (
 )
 
 func main() {
-	log := bootstrap.NewLogger(slog.NewJSONHandler(os.Stdout, nil))
+	log := bootstrap.NewLoggerFromEnv()
 
 	// Load domain-specific configs directly — no god-config needed.
 	redisCfg := storageredis.LoadConfig()

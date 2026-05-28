@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io/fs"
-	"log/slog"
 	"os"
 	"os/signal"
 	"strconv"
@@ -18,7 +17,7 @@ import (
 )
 
 func main() {
-	log := bootstrap.NewLogger(slog.NewJSONHandler(os.Stdout, nil))
+	log := bootstrap.NewLoggerFromEnv()
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()

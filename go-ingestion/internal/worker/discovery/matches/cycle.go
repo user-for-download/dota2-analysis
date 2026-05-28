@@ -103,6 +103,7 @@ func (c *Cycle) RunOnce(ctx context.Context) error {
 	var lastErr error
 	var err error
 	for attempt := 1; attempt <= c.cfg.MaxRetries; attempt++ {
+		c.log.Debug("discoverer: fetching match ids", "key", key, "attempt", attempt)
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
@@ -129,6 +130,7 @@ func (c *Cycle) RunOnce(ctx context.Context) error {
 	c.log.Info("query returned", "key", key, "count", len(ids))
 
 	// Pre-filter with PostgreSQL to respect existing parsed matches even if Redis resets.
+	c.log.Debug("discoverer: filtering against db", "candidates", len(ids))
 	if c.reader != nil && len(ids) > 0 {
 		unknownIDs, err := c.reader.UnknownIDs(ctx, ids)
 		if err != nil {
@@ -142,6 +144,7 @@ func (c *Cycle) RunOnce(ctx context.Context) error {
 	pushed := 0
 	skipped := 0
 	for _, id := range ids {
+		c.log.Debug("discoverer: processing match id", "match_id", id)
 		if c.dedup != nil {
 			dedupKey := strconv.FormatInt(id, 10)
 			seen, err := c.dedup.IsSeen(ctx, dedupKey)

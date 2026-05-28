@@ -30,7 +30,7 @@ import (
 )
 
 func main() {
-	log := bootstrap.NewLogger(slog.NewJSONHandler(os.Stdout, nil))
+	log := bootstrap.NewLoggerFromEnv()
 
 	action := flag.String("action", "list", "Action: list, replay, purge")
 	streamType := flag.String("stream", "all", "DLQ stream: fetch, parse, all")

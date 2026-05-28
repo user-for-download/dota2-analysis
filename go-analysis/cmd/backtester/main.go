@@ -24,7 +24,7 @@ var (
 )
 
 func main() {
-	log := bootstrap.NewLogger(slog.NewJSONHandler(os.Stdout, nil))
+	log := bootstrap.NewLoggerFromEnv()
 	log.Info("starting backtester", "version", version, "commit", commit)
 
 	cfg, err := config.Load("")

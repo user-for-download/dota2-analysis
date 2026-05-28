@@ -85,6 +85,7 @@ func (p *Parser) Run(ctx context.Context) error {
 // handleMessage implements queue.Handler.  It processes a single parse task,
 // retrieves the stored match payload, decodes/validates it, and ingests it.
 func (p *Parser) handleMessage(ctx context.Context, msg queue.Message) error {
+	p.log.Debug("parser: received message", "msg_id", msg.ID)
 	var body Task
 	if err := json.Unmarshal(msg.Payload, &body); err != nil {
 		p.m.ParseFailure(ctx, metrics.KindDecode)
@@ -103,6 +104,7 @@ func (p *Parser) handleMessage(ctx context.Context, msg queue.Message) error {
 		p.m.ParseFailure(ctx, metrics.KindPayload)
 		return fmt.Errorf("payload get: %w", err)
 	}
+	p.log.Debug("parser: payload retrieved", "match_id", body.MatchID, "bytes", len(blob))
 
 	m, err := decodeMatch(body.MatchID, blob)
 	if err != nil {
@@ -113,6 +115,13 @@ func (p *Parser) handleMessage(ctx context.Context, msg queue.Message) error {
 		p.m.ParseFailure(ctx, metrics.KindValidate)
 		return queue.ErrDrop
 	}
+
+	p.log.Debug("match decoded successfully",
+		"match_id", m.MatchID,
+		"is_parsed", m.IsParsed,
+		"players", len(m.Players),
+		"duration_sec", m.Duration,
+		"radiant_win", m.RadiantWin)
 
 	if err := p.ingester.Ingest(ctx, m); err != nil {
 		if errors.Is(err, dedup.ErrAlreadySeen) {
