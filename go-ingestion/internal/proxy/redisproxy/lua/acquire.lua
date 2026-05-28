@@ -12,21 +12,24 @@ math.randomseed(tonumber(ARGV[4]) or now)
 -- Clean up expired leases
 redis.call('ZREMRANGEBYSCORE', leasedKey, 0, now - 1)
 
-local candidates = redis.call('ZREVRANGE', availableKey, 0, topN - 1)
+-- Scan the full ZSET from highest to lowest score.
+-- Top-N is removed: under high concurrency the top 20 may all be leased
+-- while hundreds of healthy proxies sit idle further down.
+local candidates = redis.call('ZREVRANGE', availableKey, 0, -1)
 if #candidates == 0 then
-    return nil
+	return nil
 end
 
 -- Collect only unleased candidates
 local available = {}
 for _, c in ipairs(candidates) do
-    if not redis.call('ZSCORE', leasedKey, c) then
-        table.insert(available, c)
-    end
+	if not redis.call('ZSCORE', leasedKey, c) then
+		table.insert(available, c)
+	end
 end
 
 if #available == 0 then
-    return nil
+	return nil
 end
 
 -- Pick randomly from available proxies to distribute load

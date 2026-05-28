@@ -221,12 +221,12 @@ services:
             <<: *common-env
             POSTGRES_DSN: postgresql://${POSTGRES_USER:-dota2}:${POSTGRES_PASSWORD:-dota2}@postgres:5432/${POSTGRES_DB:-dota2}
             API_TOKEN: ${API_TOKEN:-changeme}
-            API_BIND: 0.0.0.0:8080
+            API_BIND: 0.0.0.0:8081
             ANALYTICS_SCORER_KIND: ${ANALYTICS_SCORER_KIND:-linear}
             ANALYTICS_MODEL_DIR: /models/imitation/current
             ANALYTICS_VALUE_MODEL_DIR: /models/value/current
         ports:
-            - "127.0.0.1:${ANALYSIS_API_PORT:-8080}:8080"
+            - "127.0.0.1:${ANALYSIS_API_PORT:-8081}:8081"
         volumes:
             # Prerequisite: ./go-analysis/assets/models/ must exist on the
             # host (create with mkdir -p if absent) or Docker will create an

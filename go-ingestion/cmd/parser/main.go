@@ -20,6 +20,7 @@ import (
 	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/queue"
 	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/queue/redisstreams"
 	storageredis "github.com/user-for-download/dota2-analysis/go-ingestion/internal/storage/redis"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/storage/matchstore/matchpg"
 	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/storage/pgclient"
 	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/queue/middleware"
 	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/resilience"
@@ -74,6 +75,11 @@ func main() {
 	// ── Stores & Repos ─────────────────────────────────────────────
 	stores := pgclient.NewStores(db, log)
 	repo := stores.Matches // matchstore.MatchWriter (also MatchStore)
+
+	// Wire optional metrics sink into the store for draft-schema canary.
+	if ms, ok := repo.(*matchpg.Store); ok {
+		ms.SetMetrics(sink)
+	}
 
 	// ── Queue (parser consumer) ────────────────────────────────────
 	parseQ, err := redisstreams.New(rdb.Master(), redisstreams.Config{

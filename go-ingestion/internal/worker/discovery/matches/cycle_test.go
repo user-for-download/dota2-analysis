@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/dedup/inmem"
 	metricsinmem "github.com/user-for-download/dota2-analysis/go-ingestion/internal/metrics/inmem"
@@ -92,8 +93,10 @@ func TestMatchesCycleRunOnceError(t *testing.T) {
 	m := metricsinmem.New()
 
 	c, _ := New(q, d, m, Config{Queries: map[string]string{"default": "select"}})
-	
-	if err := c.RunOnce(context.Background()); err == nil {
+
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+	if err := c.RunOnce(ctx); err == nil {
 		t.Error("expected error")
 	}
 }

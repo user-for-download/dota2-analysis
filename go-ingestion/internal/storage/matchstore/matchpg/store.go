@@ -9,11 +9,13 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/user-for-download/dota2-analysis/go-core/domain"
+	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/metrics"
 	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/storage/matchstore"
 )
 
 type Store struct {
 	db  *pgxpool.Pool
+	m   metrics.Sink // optional; nil at bootstrap, set by caller via SetMetrics
 	log *slog.Logger
 }
 
@@ -23,6 +25,10 @@ func NewStore(db *pgxpool.Pool, log *slog.Logger) *Store {
 	}
 	return &Store{db: db, log: log.With("component", "matchpg")}
 }
+
+// SetMetrics attaches an optional metrics sink for draft-schema canary alerts.
+// Must be called before the first IngestMatch call if metrics are desired.
+func (s *Store) SetMetrics(m metrics.Sink) { s.m = m }
 
 var _ matchstore.MatchWriter = (*Store)(nil)
 var _ matchstore.MatchReader = (*Store)(nil)
@@ -63,6 +69,9 @@ func (s *Store) IngestMatch(ctx context.Context, m domain.Match) error {
 			}
 			if err := s.upsertPicksBans(ctx, tx, m); err != nil {
 				return err
+			}
+			if err := s.checkDraftSchema(ctx, m); err != nil {
+				return err // rollback → match sent to DLQ
 			}
 			if err := s.upsertDraftTimings(ctx, tx, m); err != nil {
 				return err
@@ -148,4 +157,33 @@ func (s *Store) IsIngested(ctx context.Context, matchID int64, startTime int64) 
 	var exists bool
 	err := s.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM matches WHERE match_id = $1 AND start_time = $2)`, matchID, startTime).Scan(&exists)
 	return exists, err
+}
+
+// checkDraftSchema computes the draft sequence hash and warns if it doesn't
+// match any known schema. This is the canary that catches Valve draft format
+// changes before they silently corrupt ML training data.
+//
+// Returns an error on mismatch so the caller can rollback the transaction
+// and route the message to the DLQ — preventing corrupted data from reaching
+// Postgres and the training pipeline.
+func (s *Store) checkDraftSchema(ctx context.Context, m domain.Match) error {
+	if len(m.PicksBans) == 0 {
+		return nil
+	}
+	hash := computeSequenceHash(m.PicksBans)
+	for _, known := range knownDraftSchemaHashes {
+		if hash == known {
+			return nil // known schema — all good
+		}
+	}
+	err := fmt.Errorf("unknown draft schema: %s", hash)
+	s.log.Warn("unknown draft schema detected — Valve may have changed the format",
+		"match_id", int64(m.MatchID),
+		"hash", hash,
+		"num_picks_bans", len(m.PicksBans),
+	)
+	if s.m != nil {
+		s.m.IngestFailure(ctx, metrics.KindDraftSchema, int64(m.MatchID), err)
+	}
+	return err
 }

@@ -32,6 +32,8 @@ Both communicate through Postgres — the schema is managed by `go-core/schema/m
 - **Decentralized Config**: Each binary owns its exact configuration boundaries via domain-specific `LoadConfig()` functions. No global god-objects.
 - **Pure Queues**: Redis Streams with consumer groups. Payloads are opaque `[]byte` — no JSON introspection or `_retry` hacks. Retry counts are stored as native stream fields.
 - **End-to-End Tracing**: OpenTelemetry (OTel) trace context is preserved across the entire pipeline (Fetcher → Redis Queue → Parser → Ingester) via middleware decorators.
+- **Env-Driven Log Level**: Set `LOG_LEVEL=debug` across all 11 service binaries via a single env var. `NewLoggerFromEnv()` in `go-core/bootstrap` reads it at startup — no code changes needed to toggle verbosity.
+- **Resilient Discoverer**: The matches cycle retries the upstream SQL explorer **indefinitely** until it gets a 200 OK or the service is shut down. Timeouts, 5xx errors, and network blips all trigger retries with exponential backoff (capped at 30s). Each HTTP attempt uses a fresh proxy lease.
 - **Decoupled ML Inference**: The Go API server is decoupled from LightGBM via a `ModelReloader` interface. The `ModelWatcher` handles SIGHUP hot-reloads atomically.
 - **Per-Candidate Ranking**: The LambdaMART model uses 17 features (8 MV-dependent, 9 per-candidate/draft context) and groups by `(match_id, slot)` to provide true within-decision ranking signal.
 

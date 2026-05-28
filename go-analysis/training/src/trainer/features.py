@@ -727,15 +727,85 @@ def _features_attr_diversity(candidates: pd.DataFrame) -> pd.DataFrame:
     return result
 
 
-def _features_draft(candidates: pd.DataFrame) -> pd.DataFrame:
-    """Features 9-10: draft_slot_norm, is_pick_phase.
+def _features_draft(candidates: pd.DataFrame, raw_decisions: pd.DataFrame | None = None) -> pd.DataFrame:
+    """Features 15-16+: draft_slot_norm, is_pick_phase, semantic draft context.
 
     Draft position and pick-vs-ban phase — no DB needed, no label leakage.
+    When raw_decisions is provided, also computes semantic draft features
+    that survive format changes (team_picks_made, is_first_pick, etc.).
     """
     result = candidates.copy()
     result["draft_slot_norm"] = result["slot"] / 30.0  # normalize to ~[0, 1]
     result["is_pick_phase"] = result["is_pick"].astype(float)
     result["is_pick_phase"] = result["is_pick_phase"].fillna(1.0)
+
+    if raw_decisions is not None:
+        result = _features_draft_semantic(result, raw_decisions)
+
+    return result
+
+
+def _features_draft_semantic(candidates: pd.DataFrame, raw_decisions: pd.DataFrame) -> pd.DataFrame:
+    """Features 17-23: semantic draft context that survives format changes.
+
+    Instead of absolute slot position (which shifts when Valve changes the
+    draft format), compute relative state: how many picks each team has made
+    at this point in the draft.  Feature values are the same for all candidates
+    in a slot — they provide temporal context, not per-hero ranking signal.
+
+    All counts represent the state BEFORE the current slot (decisions already
+    made, not including the current one).
+    """
+    # Compute cumulative draft state from raw decisions.
+    dec = raw_decisions.sort_values(["match_id", "slot"]).copy()
+    dec["is_pick_int"] = dec["is_pick"].astype(int)
+    dec["is_ban_int"] = (~dec["is_pick"]).astype(int)
+
+    # Per-team running counts (picks/bans BEFORE this slot).
+    grp_team = dec.groupby(["match_id", "team"])
+    dec["team_picks_before"] = (
+        grp_team["is_pick_int"].cumsum() - dec["is_pick_int"]
+    ).astype(int)
+    dec["team_bans_before"] = (
+        grp_team["is_ban_int"].cumsum() - dec["is_ban_int"]
+    ).astype(int)
+
+    # Totals across both teams.
+    grp_match = dec.groupby("match_id")
+    dec["total_picks_before"] = (
+        grp_match["is_pick_int"].cumsum() - dec["is_pick_int"]
+    ).astype(int)
+    dec["total_bans_before"] = (
+        grp_match["is_ban_int"].cumsum() - dec["is_ban_int"]
+    ).astype(int)
+
+    # Enemy team stats = total - own team's.
+    dec["enemy_picks_before"] = (dec["total_picks_before"] - dec["team_picks_before"]).astype(int)
+
+    # Per-slot state for merging back to candidates.
+    slot_state = dec[
+        ["match_id", "slot", "team_picks_before", "enemy_picks_before"]
+    ].drop_duplicates()
+
+    result = candidates.merge(slot_state, on=["match_id", "slot"], how="left")
+
+    # Fill missing values (should not occur with real data).
+    result["team_picks_before"] = result["team_picks_before"].fillna(0).astype(int)
+    result["enemy_picks_before"] = result["enemy_picks_before"].fillna(0).astype(int)
+
+    # Derived boolean / relative features.
+    # 5 picks per team is the CM default — this can be parameterised once
+    # the draft schema registry (Tier 2) is implemented.
+    result["is_first_pick"] = (result["team_picks_before"] == 0).astype(float)
+    result["is_last_pick"] = (result["team_picks_before"] == 4).astype(float)
+    result["is_counter_phase"] = (
+        result["enemy_picks_before"] > result["team_picks_before"]
+    ).astype(float)
+    result["remaining_team_picks"] = (5 - result["team_picks_before"]).clip(0, 5).astype(float)
+    result["draft_progress"] = (
+        (result["team_picks_before"] + result["enemy_picks_before"]) / 10.0
+    ).clip(0, 1)  # 10 total picks in CM
+
     return result
 
 
@@ -753,11 +823,13 @@ def compute_features(
     gets the same value (e.g. team-level defaults from empty MVs),
     the feature contributes zero ranking signal.
 
-    Features 0-7  MV-dependent — may return constants when tables empty.
-    Features 8-10 Hero priors — VARY per candidate by hero_id.
+    Features 0-7   MV-dependent — may return constants when tables empty.
+    Features 8-10  Hero priors — VARY per candidate by hero_id.
     Features 11-14 Attribute/draft-context — VARY per candidate by attr.
     Features 15-16 Draft position — same across all candidates in group,
-                  included as weak group-level signal.
+                   included as weak group-level signal.
+    Features 17-23 Semantic draft context — patch-invariant relative state
+                   (team_picks_before, is_first_pick, draft_progress, etc.).
 
     Feature order must match FEATURE_SPEC_VERSION in feature_specs.py.
     """
@@ -801,7 +873,7 @@ def compute_features(
     # Must run AFTER _features_hero_meta (needs hero_meta_primary_attr).
     result = _features_attr_diversity(result)
 
-    # draft context: position features (same per group, weak signal).
-    result = _features_draft(result)
+    # draft context: position + semantic features (same per group, weak signal).
+    result = _features_draft(result, raw_decisions=raw_decisions)
 
     return result

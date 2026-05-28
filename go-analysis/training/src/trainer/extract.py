@@ -26,7 +26,6 @@ WITH decisions AS (
     JOIN public.picks_bans pb ON pb.match_id = m.match_id
     WHERE m.patch_id = :patch_id
       AND m.leagueid > 0
-      AND pb.is_pick = true
 )
 SELECT * FROM decisions
 ORDER BY match_id, slot;

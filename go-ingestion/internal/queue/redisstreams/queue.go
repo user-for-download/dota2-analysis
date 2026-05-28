@@ -255,6 +255,9 @@ func (q *Queue) scheduleAsyncRetry(ctx context.Context, t queue.Task) error {
 	pipe.ZAdd(ctx, q.asyncCfg.ZSetKey, goredis.Z{Score: score, Member: string(member)})
 	if t.ID != "" {
 		pipe.XAck(ctx, q.cfg.Stream, q.cfg.Group, t.ID)
+		if q.cfg.DeleteOnAck {
+			pipe.XDel(ctx, q.cfg.Stream, t.ID)
+		}
 	}
 	_, err = pipe.Exec(ctx)
 	if err != nil {

@@ -180,13 +180,22 @@ func (h *Handler) SimulateDraft(w http.ResponseWriter, r *http.Request) {
 		}
 		resp.Steps = append(resp.Steps, step)
 
-		// Simulate picking the top recommendation (for picks only)
-		if !phase.IsBan && len(result.Recommendations) > 0 {
+		// Simulate the top recommendation — track picks AND bans so subsequent
+		// slots see an accurate legal-hero pool.
+		if len(result.Recommendations) > 0 {
 			topHero := result.Recommendations[0].Hero
-			if phase.ActingTeam == domain.DraftRadiant {
-				radiantPicks = append(radiantPicks, topHero)
+			if phase.IsBan {
+				if phase.ActingTeam == domain.DraftRadiant {
+					radiantBans = append(radiantBans, topHero)
+				} else {
+					direBans = append(direBans, topHero)
+				}
 			} else {
-				direPicks = append(direPicks, topHero)
+				if phase.ActingTeam == domain.DraftRadiant {
+					radiantPicks = append(radiantPicks, topHero)
+				} else {
+					direPicks = append(direPicks, topHero)
+				}
 			}
 		}
 	}

@@ -79,11 +79,55 @@ returned match IDs onto the **fetch queue**. Supports a one-shot mode
 (`--file <key>`) for ad-hoc backfills and a scheduled mode driven by
 `DISCOVERY_INTERVAL`.
 
-Each discovery cycle uses the
-`discovery.HTTPDoer` interface, allowing injected HTTP clients for
-testing without a proxy pool. Currently only the **matches** cycle has
-an implementation (`internal/worker/discovery/matches/`); leagues, teams,
-and proplayers cycles are planned but not yet coded.
+Each discovery cycle uses the `discovery.HTTPDoer` interface, allowing
+injected HTTP clients for testing without a proxy pool. Currently only
+the **matches** cycle has an implementation
+(`internal/worker/discovery/matches/`); leagues, teams, and proplayers
+cycles are planned but not yet coded.
+
+#### Retry Logic: "Until 200"
+
+The matches cycle's inner `fetchMatchIDs()` call uses `httpdo.Doer` for
+proxy-aware HTTP execution. The doer makes up to `DISCOVERY_MAX_RETRIES`
+attempts (one fresh proxy lease per attempt), rotating proxies on timeouts
+and 5xx errors. Non-200 status codes are treated as permanent failures
+(4xx) or retried (5xx) at the doer level.
+
+If the doer exhausts all proxy retries or the API returns a non-200
+response, the **outer retry loop** in `Cycle.RunOnce()` kicks in. Unlike
+a fixed-retry-count approach, this loop retries indefinitely — it only
+exits when:
+- `fetchMatchIDs()` returns a **200 OK** with valid JSON → **success**
+- The **context is cancelled** (SIGTERM/SIGINT → service shutdown)
+
+Backoff is exponential (`RetryBackoff × attempt`), **capped at 30s**, so
+the discoverer does not spam a downed upstream but still recovers quickly
+when the API comes back online.
+
+```
+Outer loop (retry until ctx cancelled or 200 OK):
+  ├── doer loop (up to MaxRetries × proxy)
+  │     ├── proxy A → 30s timeout → switch proxy
+  │     ├── proxy B → 5xx → switch proxy
+  │     └── proxy C → 200 OK → return response
+  ├── fetchMatchIDs checks: resp.StatusCode == 200?
+  │     ├── YES → parse body, return IDs
+  │     └── NO  → wrap as retryable error
+  └── backoff: 500ms → 1s → 1.5s → … → capped at 30s
+```
+
+#### HTTP Timeout
+
+Each individual HTTP call is capped by `DISCOVERY_HTTP_TIMEOUT` (default
+**180s**, configurable). The OpenDota SQL explorer endpoint is
+notoriously slow — the generous timeout gives it room to complete while
+still failing fast on a truly dead upstream.
+
+#### Status Code Validation
+
+`fetchMatchIDs()` explicitly checks `resp.StatusCode == 200`. A non-200
+response (e.g. a 503 with an error body) is wrapped as a retryable error
+rather than silently dropped or parsed as valid JSON.
 
 #### PostgreSQL Pre-Filtering (Redis-Flush Resilience)
 
@@ -126,6 +170,16 @@ transient errors trigger a different proxy on retry. Rate-limit errors
 (`429`) are requeued without penalising the proxy.
 
 Creates a `worker.process` span inheriting the trace context from the Redis Stream.
+
+#### LocalURL Fast-Path
+
+When `FETCHER_UPSTREAM_LOCAL_URL` is set (e.g.
+`http://ocode-app:8080/api/v1`), the fetcher creates a **local HTTP client**
+that bypasses the proxy pool entirely. The `LocalURL` is preferred over the
+proxy-backed `UpstreamURL` when non-empty. This is used in local development
+where the upstream API mirror runs on the same Docker network, making proxy
+rotation unnecessary. The standard `UpstreamURL` is still used when
+`LocalURL` is empty (production).
 
 ### `parser`
 
@@ -439,7 +493,10 @@ no monolithic config. Each `cmd/<binary>` calls only the helpers it needs:
 
 - `ProxyPool(rdb, cfg, log)` — creates a Redis-backed proxy pool
 - `Postgres(ctx, cfg, log)` — opens an OTel-traced pgxpool
-- `NewLogger(handler)` — wraps slog with trace ID injection
+- `NewLogger(handler)` — wraps a slog.Handler with OTel trace ID injection
+- `NewLoggerFromEnv()` — same as `NewLogger` but reads `LOG_LEVEL` from the
+  environment (defaults to `INFO`); enables `debug`-level tracing across the
+  pipeline without code changes
 - `InitTelemetry(ctx, name, endpoint, rate)` — sets up OTLP tracing
 - `MatchWriter(db, log)` / `ReferenceWriter(db, log)` — PG store constructors
 - `WaitForProxies` / `WaitForPostgres` — block startup until dependencies are reachable
@@ -502,6 +559,10 @@ for end-to-end visualization.
 
 | Stage      | Failure                          | Action                                 |
 |------------|----------------------------------|----------------------------------------|
+| discoverer | Network / timeout                 | Rotate proxy (httpdo), retry up to MaxRetries |
+| discoverer | 5xx (upstream error)             | Rotate proxy (httpdo), retry up to MaxRetries |
+| discoverer | Non-200 status                   | Wrap as error — outer loop retries indefinitely until 200 or cancelled |
+| discoverer | All proxy retries exhausted      | Outer loop retries with exponential backoff (capped at 30s) |
 | fetcher    | 4xx permanent (404/401/403/410)  | Drop + ack                              |
 | fetcher    | 429 / 5xx                         | Mark proxy failure, retry on new proxy  |
 | fetcher    | Network / timeout                 | Mark proxy failure, retry on new proxy  |

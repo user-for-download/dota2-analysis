@@ -66,6 +66,7 @@ const (
 	KindNotFound  FailureKind = "not_found"
 	KindProxy     FailureKind = "proxy"
 	KindPayload   FailureKind = "payload"
+	KindDraftSchema FailureKind = "draft_schema"
 )
 
 func (k FailureKind) String() string { return string(k) }
@@ -83,5 +84,6 @@ func AllKinds() []FailureKind {
 		KindNotFound,
 		KindProxy,
 		KindPayload,
+		KindDraftSchema,
 	}
 }

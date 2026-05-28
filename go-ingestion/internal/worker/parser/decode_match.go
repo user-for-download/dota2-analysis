@@ -124,7 +124,9 @@ func isMatchParsed(rm rawMatch, matchID int64) bool {
 		return false
 	}
 	for _, p := range rm.Players {
-		if p.PurchaseLog != nil || len(p.GoldT) > 0 || len(p.XPT) > 0 {
+		// json.RawMessage stores JSON null as []byte("null"), not nil.
+		hasLogs := len(p.PurchaseLog) > 0 && string(p.PurchaseLog) != "null"
+		if hasLogs || len(p.GoldT) > 0 || len(p.XPT) > 0 {
 			return true
 		}
 	}
@@ -135,7 +137,7 @@ func isMatchParsed(rm rawMatch, matchID int64) bool {
 		"players_count", len(rm.Players),
 		"p0_gold_t_len", len(p0.GoldT),
 		"p0_xp_t_len", len(p0.XPT),
-		"p0_has_purchase_log", p0.PurchaseLog != nil,
+		"p0_has_purchase_log", len(p0.PurchaseLog) > 0 && string(p0.PurchaseLog) != "null",
 		"p0_has_ability_uses", p0.AbilityUses != nil,
 	)
 	return false

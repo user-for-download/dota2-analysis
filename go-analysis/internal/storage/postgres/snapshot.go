@@ -31,9 +31,12 @@ func SnapshotPlayerHero(ctx context.Context, db *pgxpool.Pool, now time.Time) (e
 		games,
 		wins,
 		shrunk_wr,
-		(SELECT MAX(patch_id) - 2 FROM public.matches),  -- -2: pad to exclude current + most-recent patch (still settling)
-		(SELECT MAX(patch_id) FROM public.matches)
+		p.max_patch - 2,  -- -2: pad to exclude current + most-recent patch (still settling)
+		p.max_patch
 	FROM analytics.mv_player_hero_profile
+	CROSS JOIN (
+		SELECT COALESCE(MAX(patch_id), 0) AS max_patch FROM public.matches
+	) p
 	WHERE games >= 1
 	`
 	if _, err = tx.Exec(ctx, snapshotSQL, now); err != nil {

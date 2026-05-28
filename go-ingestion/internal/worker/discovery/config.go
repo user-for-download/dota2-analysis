@@ -35,7 +35,7 @@ func LoadConfig() Config {
 	return Config{
 		UpstreamURL:       getStr("DISCOVERY_UPSTREAM_URL", ""),
 		WaitTimeout:       getDur("DISCOVERY_WAIT_TIMEOUT", 5*time.Minute),
-		HTTPTimeout:       getDur("DISCOVERY_HTTP_TIMEOUT", 30*time.Second),
+		HTTPTimeout:       getDur("DISCOVERY_HTTP_TIMEOUT", 180*time.Second),
 		Interval:          getDur("DISCOVERY_INTERVAL", 24*time.Hour),
 		RunAtStart:        getBool("DISCOVERY_RUN_AT_START", true),
 		AllowDirect:       getBool("DISCOVERY_ALLOW_DIRECT", false),

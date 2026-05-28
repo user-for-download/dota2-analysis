@@ -33,6 +33,17 @@
 
 The `pgclient` package (inherited from ingestion) uses `DISCARD TEMP` instead of `DISCARD ALL` to reset connection state. `DISCARD ALL` would also discard prepared statements, which degrades performance. `DISCARD TEMP` is sufficient to clean temporary tables between connections.
 
+### Why `NewLoggerFromEnv` instead of direct `slog.NewJSONHandler`?
+
+Every service entrypoint previously used:
+```go
+log := bootstrap.NewLogger(slog.NewJSONHandler(os.Stdout, nil))
+```
+Passing `nil` for options hardcodes the level to `INFO`, ignoring `LOG_LEVEL=debug`.
+`NewLoggerFromEnv()` reads `LOG_LEVEL` from the environment at startup and
+configures the handler accordingly, so a single env var controls verbosity
+across all 11 service binaries without code changes.
+
 ### Why is migrator a library, not a binary?
 
 Each downstream project has its own entrypoint (`cmd/migrator/main.go`) that imports the shared `migrator.Run` function. This allows per-project concerns (config loading, signal handling, telemetry setup) to live in the project while the migration logic is shared. The wrappers are intentionally thin (~40-70 lines).

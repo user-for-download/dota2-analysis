@@ -100,6 +100,29 @@ func DefaultRegistry() *FeatureRegistry {
 		return NewIsPickPhaseSource(), nil
 	})
 
+	// ── Semantic draft context (patch-invariant relative state) ─────
+	r.Register("team_picks_before", func(_ profiles.Repository, _ domain.HeroCatalog) (FeatureSource, error) {
+		return NewTeamPicksBeforeSource(), nil
+	})
+	r.Register("enemy_picks_before", func(_ profiles.Repository, _ domain.HeroCatalog) (FeatureSource, error) {
+		return NewEnemyPicksBeforeSource(), nil
+	})
+	r.Register("is_first_pick", func(_ profiles.Repository, _ domain.HeroCatalog) (FeatureSource, error) {
+		return NewIsFirstPickSource(), nil
+	})
+	r.Register("is_last_pick", func(_ profiles.Repository, _ domain.HeroCatalog) (FeatureSource, error) {
+		return NewIsLastPickSource(), nil
+	})
+	r.Register("is_counter_phase", func(_ profiles.Repository, _ domain.HeroCatalog) (FeatureSource, error) {
+		return NewIsCounterPhaseSource(), nil
+	})
+	r.Register("remaining_team_picks", func(_ profiles.Repository, _ domain.HeroCatalog) (FeatureSource, error) {
+		return NewRemainingTeamPicksSource(), nil
+	})
+	r.Register("draft_progress", func(_ profiles.Repository, _ domain.HeroCatalog) (FeatureSource, error) {
+		return NewDraftProgressSource(), nil
+	})
+
 	return r
 }
 
@@ -155,6 +178,14 @@ func DefaultSources(repo profiles.Repository, catalog domain.HeroCatalog) []Feat
 		// Draft position (15-16) — same within group
 		NewDraftSlotNormSource(),
 		NewIsPickPhaseSource(),
+		// Semantic draft context (17-23) — patch-invariant relative state
+		NewTeamPicksBeforeSource(),
+		NewEnemyPicksBeforeSource(),
+		NewIsFirstPickSource(),
+		NewIsLastPickSource(),
+		NewIsCounterPhaseSource(),
+		NewRemainingTeamPicksSource(),
+		NewDraftProgressSource(),
 	}
 }
 

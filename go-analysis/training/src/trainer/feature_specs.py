@@ -33,4 +33,12 @@ FEATURES = [
     # ── Draft position (same within group — weak group-level signal only) ──
     {"name": "draft_slot_norm", "dtype": "f32", "source_hash": "draft_slot_norm: slot/max_slot normalized to [0,1]"},
     {"name": "is_pick_phase", "dtype": "f32", "source_hash": "is_pick_phase: 1.0 for picks, 0.0 for bans"},
+    # ── Semantic draft context (same within group — patch-invariant state) ──
+    {"name": "team_picks_before", "dtype": "f32", "source_hash": "team_picks_before: picks by acting_team before this slot"},
+    {"name": "enemy_picks_before", "dtype": "f32", "source_hash": "enemy_picks_before: picks by enemy team before this slot"},
+    {"name": "is_first_pick", "dtype": "f32", "source_hash": "is_first_pick: team_picks_before == 0"},
+    {"name": "is_last_pick", "dtype": "f32", "source_hash": "is_last_pick: team_picks_before == 4 (5th pick)"},
+    {"name": "is_counter_phase", "dtype": "f32", "source_hash": "is_counter_phase: enemy_picks_before > team_picks_before"},
+    {"name": "remaining_team_picks", "dtype": "f32", "source_hash": "remaining_team_picks: 5 - team_picks_before"},
+    {"name": "draft_progress", "dtype": "f32", "source_hash": "draft_progress: (team + enemy picks) / 10"},
 ]

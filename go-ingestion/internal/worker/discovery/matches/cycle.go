@@ -100,32 +100,29 @@ func (c *Cycle) RunOnce(ctx context.Context) error {
 	}
 
 	var ids []int64
-	var lastErr error
 	var err error
-	for attempt := 1; attempt <= c.cfg.MaxRetries; attempt++ {
+	const maxBackoff = 30 * time.Second
+	for attempt := 1; ctx.Err() == nil; attempt++ {
 		c.log.Debug("discoverer: fetching match ids", "key", key, "attempt", attempt)
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
 		ids, err = c.fetchMatchIDs(ctx, sql)
 		if err == nil {
 			break
 		}
-		lastErr = err
 		c.log.Warn("fetch match ids failed, retrying",
-			"key", key, "attempt", attempt, "max_retries", c.cfg.MaxRetries, "err", err,
+			"key", key, "attempt", attempt, "err", err,
 		)
-		if attempt < c.cfg.MaxRetries {
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-time.After(c.cfg.RetryBackoff):
-			}
+		backoff := c.cfg.RetryBackoff * time.Duration(attempt)
+		if backoff > maxBackoff || backoff <= 0 {
+			backoff = maxBackoff
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(backoff):
 		}
 	}
-	if lastErr != nil {
-		c.m.FetchFailure(ctx, metrics.KindHTTP)
-		return fmt.Errorf("fetch match ids (%s): %w", key, lastErr)
+	if err != nil {
+		return fmt.Errorf("fetch match ids (%s): %w", key, err)
 	}
 	c.log.Info("query returned", "key", key, "count", len(ids))
 
@@ -185,6 +182,11 @@ func (c *Cycle) fetchMatchIDs(ctx context.Context, sql string) ([]int64, error) 
 		return nil, fmt.Errorf("http: %w", err)
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("unexpected status: %d", resp.StatusCode)
+	}
+
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err

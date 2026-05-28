@@ -125,6 +125,9 @@ func Replay(ctx context.Context, rdb *redis.Client, dlqStreams []string, qCfg qu
 			result, err := replayCmd.Run(ctx, rdb, keys, args...).Int64()
 			if err != nil {
 				log.Error("atomic replay failed", "id", m.ID, "err", err)
+				if matchID != "" {
+					rdb.Del(ctx, guardKey+":"+matchID)
+				}
 				failed++
 				continue
 			}

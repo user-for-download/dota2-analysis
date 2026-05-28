@@ -36,13 +36,21 @@ def generate_candidates(decisions: pd.DataFrame, all_heroes: list[int]) -> pd.Da
 
         for _, row in group.iterrows():
             hero: int = row["hero_id"]
+            is_ban: bool = not row["is_pick"]
+
+            # Track this hero as unavailable for future slots (picks AND bans).
+            drafted_so_far.add(hero)
+
+            # Only generate training samples for picks — bans are not decisions to recommend.
+            if is_ban:
+                continue
 
             # Positive sample: the actual pick at this slot.
             r = row.to_dict()
             r["label"] = 1.0
             rows.append(r)
 
-            # Negative samples: heroes not yet drafted at this point.
+            # Negative samples: heroes not yet drafted (or banned) at this point.
             available = _available_heroes(all_heroes, drafted_so_far, hero)
             n_neg = min(_NEGATIVES_PER_SLOT, len(available))
             if n_neg > 0:
@@ -52,8 +60,5 @@ def generate_candidates(decisions: pd.DataFrame, all_heroes: list[int]) -> pd.Da
                     r["hero_id"] = neg_id
                     r["label"] = 0.0
                     rows.append(r)
-
-            # This hero is now drafted (no longer available for later slots).
-            drafted_so_far.add(hero)
 
     return pd.DataFrame(rows)

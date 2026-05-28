@@ -313,7 +313,7 @@ func (p *Pool) recordFailure(url string) func(context.Context, error) error {
 		res, err := p.scriptRecordFailure.Run(
 			ctx, p.rdb,
 			[]string{p.keys.set(), p.keys.stats(url), p.keys.cooldown(), p.keys.cooldownEntry(url)},
-			url, p.cfg.Ranking.FailurePenalty, p.cfg.MaxFailures, msg, coolSecs,
+			url, p.cfg.Ranking.FailurePenalty, p.cfg.MaxFailures, msg, coolSecs, time.Now().Unix(),
 		).Int64()
 		if err != nil && !errors.Is(err, goredis.Nil) {
 			p.log.Debug("redisproxy: failed to record failure in redis", "url", url, "err", err)
