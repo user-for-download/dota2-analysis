@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/user-for-download/dota2-analysis/go-analysis/internal/domain"
-	"github.com/user-for-download/dota2-analysis/go-analysis/internal/profiles"
 )
 
 // ──────────────────────────────────────────────
@@ -114,23 +113,27 @@ func (s *AttrIsIntSource) Compute(ctx context.Context, st *domain.DraftState, ca
 }
 
 // ──────────────────────────────────────────────
-// AttrFitScoreSource — team_picks * (int*0.5 + agi*0.3 + str*0.2)
+// AttrFitScoreSource — team_picks_before * (int*0.5 + agi*0.3 + str*0.2)
 // ──────────────────────────────────────────────
+//
+// team_picks_before = number of picks the team has already made in this draft
+// (0-4).  This is draft depth, NOT the team's historical hero pick count.
+// Using historical picks (e.g. 100+ games) would make attr_fit_score dominate
+// all other features by orders of magnitude.
 
 type AttrFitScoreSource struct {
-	repo    profiles.Repository
 	catalog domain.HeroCatalog
 }
 
-func NewAttrFitScoreSource(repo profiles.Repository, catalog domain.HeroCatalog) *AttrFitScoreSource {
-	return &AttrFitScoreSource{repo: repo, catalog: catalog}
+func NewAttrFitScoreSource(catalog domain.HeroCatalog) *AttrFitScoreSource {
+	return &AttrFitScoreSource{catalog: catalog}
 }
 
 func (s *AttrFitScoreSource) Def() domain.FeatureDef {
 	return domain.FeatureDef{
 		Name:       "attr_fit_score",
 		Dtype:      "f32",
-		SourceHash: hashOf("attr_fit_score: team_picks * (is_int*0.5 + is_agi*0.3 + is_str*0.2)"),
+		SourceHash: hashOf("attr_fit_score: team_picks_before * max(is_int*0.5, is_agi*0.3, is_str*0.2)"),
 	}
 }
 
@@ -139,14 +142,10 @@ func (s *AttrFitScoreSource) Compute(ctx context.Context, st *domain.DraftState,
 	if err != nil {
 		return nil, fmt.Errorf("attr_fit_score meta: %w", err)
 	}
-	teamPicks, err := s.repo.TeamHeroStatsBatch(ctx, st.TeamID(), candidates)
-	if err != nil {
-		return nil, fmt.Errorf("attr_fit_score team_picks: %w", err)
-	}
+	teamPicksBefore := float64(len(st.AllyPicks()))
 	result := make(map[domain.HeroID]float64, len(candidates))
 	for _, h := range candidates {
 		attr := meta[h][0]
-		tp := float64(teamPicks[h].Games)
 		// Attribute weights: INT=0.5, AGI=0.3, STR=0.2.
 		// Universal heroes (attr==4) get the MAX weight (0.5) rather
 		// than the sum of all three — prevents a 3x bias.
@@ -159,7 +158,7 @@ func (s *AttrFitScoreSource) Compute(ctx context.Context, st *domain.DraftState,
 		default: // str or unknown → 0.2
 			attrW = 0.2
 		}
-		result[h] = tp * attrW
+		result[h] = teamPicksBefore * attrW
 	}
 	return result, nil
 }

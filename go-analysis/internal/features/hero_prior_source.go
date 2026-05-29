@@ -34,14 +34,22 @@ func (s *HeroPickRateSource) Compute(ctx context.Context, st *domain.DraftState,
 	if err != nil {
 		return nil, fmt.Errorf("hero pick rate: %w", err)
 	}
-	// Use a constant baseline for the pick-rate denominator.
-	// The exact value doesn't need to match training — the relative
-	// ordering among heroes is what provides ranking signal.
-	const nDecisions = 20000.0
+	// Training computes the denominator as n_decisions (unique match_ids in the
+	// training set).  At inference time we use the total pick count across all
+	// heroes instead — this is approximately n_decisions × 10 (10 picks per
+	// match), but avoids the hardcoded 20000.0 that drifts from the training
+	// distribution and produces values 10× larger than what the model learned.
+	totalPicks := 0.0
+	for _, h := range candidates {
+		totalPicks += float64(stats[h].PickCount)
+	}
+	if totalPicks <= 0 {
+		totalPicks = 1.0 // avoid division by zero on cold start
+	}
 	result := make(map[domain.HeroID]float64, len(candidates))
 	for _, h := range candidates {
 		gs := stats[h]
-		result[h] = (float64(gs.PickCount) + 2.0) / (nDecisions + 4.0)
+		result[h] = (float64(gs.PickCount) + 2.0) / (totalPicks + 4.0)
 	}
 	return result, nil
 }

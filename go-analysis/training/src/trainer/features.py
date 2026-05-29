@@ -262,11 +262,15 @@ def _features_synergy(
     if syn.empty:
         if hg is not None and not hg.empty:
             # Fallback: compute average global WR of ally picks per candidate.
-            actual = df[df["label"] == 1.0][["match_id", "hero_id"]].drop_duplicates()
-            actual.rename(columns={"hero_id": "ally_hero_id"}, inplace=True)
-            cross = df[["match_id", "hero_id"]].drop_duplicates().merge(
+            # ⚠️ Must filter to only allies picked BEFORE this slot — including
+            # future picks leaks draft decisions into training features.
+            actual = df[df["label"] == 1.0][["match_id", "hero_id", "slot"]].drop_duplicates()
+            actual.rename(columns={"hero_id": "ally_hero_id", "slot": "ally_slot"}, inplace=True)
+            cross = df[["match_id", "hero_id", "slot"]].drop_duplicates().merge(
                 actual, on="match_id"
             )
+            cross = cross[cross["ally_slot"] < cross["slot"]]
+            cross.drop(columns=["slot", "ally_slot"], inplace=True)
             cross = cross[cross["hero_id"] != cross["ally_hero_id"]]
             cross = cross.merge(
                 hg[["hero_id", "global_wr_shrunk"]].rename(
@@ -284,16 +288,25 @@ def _features_synergy(
         return df
 
     # Actual picks (positive samples) define the ally set.
-    actual = df[df["label"] == 1.0][["match_id", "hero_id", "acting_team"]].drop_duplicates()
+    # ⚠️ Include slot on both sides and filter so allies picked AT or AFTER
+    # the current candidate's slot are excluded — they're future draft decisions
+    # that should NOT be visible to the model.
+    actual = df[df["label"] == 1.0][
+        ["match_id", "hero_id", "acting_team", "slot"]
+    ].drop_duplicates()
     if actual.empty:
         df["mean_syn_with_allies"] = 0.5
         return df
 
-    # Cross each candidate with all actual picks in the same match.
-    cross = df[["match_id", "hero_id"]].drop_duplicates().merge(
-        actual.rename(columns={"hero_id": "ally_hero_id"})[["match_id", "ally_hero_id"]],
-        on="match_id",
+    ally_slot_cols = ["match_id", "ally_hero_id", "acting_team", "ally_slot"]
+
+    # Cross each candidate with actual picks on the SAME team before this slot.
+    cross = df[["match_id", "hero_id", "acting_team", "slot"]].drop_duplicates().merge(
+        actual.rename(columns={"hero_id": "ally_hero_id", "slot": "ally_slot"})[ally_slot_cols],
+        on=["match_id", "acting_team"],
     )
+    cross = cross[cross["ally_slot"] < cross["slot"]]  # ← future-pick guard
+    cross.drop(columns=["slot", "ally_slot"], inplace=True)
     cross = cross[cross["hero_id"] != cross["ally_hero_id"]]
 
     # Normalise pair order for synergy lookup.
@@ -336,17 +349,22 @@ def _features_counter(
     if cnt.empty:
         if hg is not None and not hg.empty:
             # Fallback: compute average global WR of enemy picks per candidate.
-            actual = df[df["label"] == 1.0][["match_id", "hero_id", "acting_team", "opp_team"]].drop_duplicates()
+            # ⚠️ Include slot and filter to enemy picks BEFORE this slot only.
+            actual = df[df["label"] == 1.0][
+                ["match_id", "hero_id", "acting_team", "opp_team", "slot"]
+            ].drop_duplicates()
             enemy_picks = actual.rename(
-                columns={"hero_id": "enemy_hero_id", "acting_team": "enemy_acting"}
-            )[["match_id", "enemy_hero_id", "enemy_acting"]]
-            cross = df[["match_id", "hero_id", "opp_team"]].drop_duplicates()
+                columns={"hero_id": "enemy_hero_id", "acting_team": "enemy_acting", "slot": "enemy_slot"}
+            )[["match_id", "enemy_hero_id", "enemy_acting", "enemy_slot"]]
+            cross = df[["match_id", "hero_id", "opp_team", "slot"]].drop_duplicates()
             cross = cross.merge(
                 enemy_picks,
                 left_on=["match_id", "opp_team"],
                 right_on=["match_id", "enemy_acting"],
                 how="inner",
             )
+            cross = cross[cross["enemy_slot"] < cross["slot"]]  # ← future-pick guard
+            cross.drop(columns=["slot", "enemy_slot"], inplace=True)
             cross = cross.merge(
                 hg[["hero_id", "global_wr_shrunk"]].rename(
                     columns={"hero_id": "enemy_hero_id", "global_wr_shrunk": "cnt_fb"}
@@ -364,7 +382,7 @@ def _features_counter(
 
     # Actual picks with their team perspective.
     actual = df[df["label"] == 1.0][
-        ["match_id", "hero_id", "acting_team", "opp_team"]
+        ["match_id", "hero_id", "acting_team", "opp_team", "slot"]
     ].drop_duplicates()
     if actual.empty:
         df["mean_counter_vs_enemies"] = 0.5
@@ -373,20 +391,30 @@ def _features_counter(
     # For each actual pick, the *enemy* picks are the rows in the same
     # match where acting_team = this row's opp_team.
     enemy_map = actual.rename(
-        columns={"hero_id": "enemy_hero_id", "acting_team": "enemy_acting", "opp_team": "enemy_opp"}
-    )[["match_id", "enemy_hero_id", "enemy_acting"]]
+        columns={"hero_id": "enemy_hero_id", "acting_team": "enemy_acting",
+                 "opp_team": "enemy_opp", "slot": "enemy_slot"}
+    )[["match_id", "enemy_hero_id", "enemy_acting", "enemy_slot"]]
 
     # Cross each candidate with enemy picks in the same match.
-    cross = df[["match_id", "hero_id", "acting_team", "opp_team"]].drop_duplicates()
+    cross = df[["match_id", "hero_id", "acting_team", "opp_team", "slot"]].drop_duplicates()
 
     # Find enemy picks: rows in same match where acting_team = candidate's opp_team
     # We join cross with enemy_map: candidate's opp_team matches enemy's acting_team
+    # Ensure enemy_map has no duplicate join keys — duplicates would cause
+    # a silent Cartesian explosion in the inner merge below.
+    enemy_dupes = enemy_map.duplicated(subset=["match_id", "enemy_acting"])
+    if enemy_dupes.any():
+        print(f"WARNING: {enemy_dupes.sum()} duplicate enemy entries before merge")
+    enemy_map = enemy_map[~enemy_dupes]
+
     cross = cross.merge(
         enemy_map,
         left_on=["match_id", "opp_team"],
         right_on=["match_id", "enemy_acting"],
         how="inner",
     )
+    cross = cross[cross["enemy_slot"] < cross["slot"]]  # ← future-pick guard
+    cross.drop(columns=["slot", "enemy_slot"], inplace=True)
 
     # Counter: hero_a = candidate, hero_b = enemy.
     cross = cross.merge(
@@ -578,7 +606,11 @@ def _features_star_threat(
         return df
 
     # For each (match_id, opp_team), get the opponent roster.
-    roster_uq = roster.drop_duplicates(subset=["match_id", "team_id", "account_id"])
+    # Assert dedup is already done at the SQL layer — if not, catch regressions.
+    dupes = roster.duplicated(subset=["match_id", "team_id", "account_id"])
+    if dupes.any():
+        print(f"WARNING: {dupes.sum()} duplicate roster rows found — SQL query needs DISTINCT")
+    roster_uq = roster[~dupes]  # safe dedup (but push to SQL in production)
 
     # Each player's best hero (highest shrunk_wr)
     player_best = ph.loc[
@@ -639,22 +671,27 @@ def _features_hero_priors(
     - Heroes with zero picks get shrink-fitted defaults (pick_rate ~2/N, wr=0.5).
     - Missing heroes in the merge get the same defaults via fillna.
     """
-    n_decisions = raw_decisions["match_id"].nunique()
-    picks = raw_decisions[raw_decisions["is_pick"] == True]
+	picks = raw_decisions[raw_decisions["is_pick"] == True]
 
-    hero_stats = (
-        picks.groupby("hero_id")
-        .agg(
-            hero_pick_count=("match_id", "count"),
-            hero_win_count=("acting_won", "sum"),
-        )
-        .reset_index()
-    )
+	hero_stats = (
+		picks.groupby("hero_id")
+		.agg(
+			hero_pick_count=("match_id", "count"),
+			hero_win_count=("acting_won", "sum"),
+		)
+		.reset_index()
+	)
 
-    # Shrunk pick rate: beta prior with strength=2.
-    hero_stats["hero_pick_rate"] = (
-        (hero_stats["hero_pick_count"] + 2.0) / (n_decisions + 4.0)
-    )
+	# Shrunk pick rate: beta prior with strength=2.
+	# Denominator = total_picks (sum across all heroes), NOT n_decisions (unique
+	# matches).  n_decisions × 10 ≈ total_picks, but the former gives rates > 1.0
+	# for commonly-picked heroes (e.g. 2000 picks / 2000 matches ≈ 1.0), which
+	# breaks the model's split thresholds.  The Go inference side must use the
+	# same denominator — see HeroPickRateSource in hero_prior_source.go.
+	total_picks = hero_stats["hero_pick_count"].sum()
+	hero_stats["hero_pick_rate"] = (
+		(hero_stats["hero_pick_count"] + 2.0) / (total_picks + 4.0)
+	)
 
     # Shrunk win rate: beta prior with strength=10 (moderate regularization).
     hero_stats["hero_wr"] = (
@@ -718,14 +755,15 @@ def _features_attr_diversity(candidates: pd.DataFrame) -> pd.DataFrame:
     )
 
     # Attribute-fit score: hero's attribute value amplified by draft depth.
-    # team_picks is the same for all candidates in a decision, but the
-    # attribute flags differ — so the product varies per candidate.
+    # team_picks_before (0-4) is the number of picks the team has made in this
+    # draft before the current slot — it's the same for all candidates in a
+    # decision, but the attribute flags differ, so the product varies per hero.
     #
     # Weights: INT=0.5 (burst vs STR/AGI), AGI=0.3 (DPS complement),
     # STR=0.2 (frontline).  Universal heroes (all three flags=1) use the
     # MAX weight (0.5) via np.maximum, not the SUM (1.0), preventing 3x bias.
     result["attr_fit_score"] = (
-        result["team_picks"]
+        result["team_picks_before"]
         * np.maximum(
             result["attr_is_int"] * 0.5,
             np.maximum(
@@ -880,11 +918,13 @@ def compute_features(
     # hero_priors: pick-rate, wr, popularity — computed from raw decisions.
     result = _features_hero_priors(result, raw_decisions)
 
+    # draft context: position + semantic features (same per group, weak signal).
+    # Must run BEFORE _features_attr_diversity so that team_picks_before is
+    # available as a column (computed inside _features_draft_semantic).
+    result = _features_draft(result, raw_decisions=raw_decisions)
+
     # attr_diversity: attribute flags + fit score.
     # Must run AFTER _features_hero_meta (needs hero_meta_primary_attr).
     result = _features_attr_diversity(result)
-
-    # draft context: position + semantic features (same per group, weak signal).
-    result = _features_draft(result, raw_decisions=raw_decisions)
 
     return result

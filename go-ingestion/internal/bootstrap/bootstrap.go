@@ -18,7 +18,7 @@ import (
 	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/storage/refdatastore"
 )
 
-func ProxyPool(rdb *goredis.Client, cfg proxy.Config, log *slog.Logger) (proxy.Pool, error) {
+func ProxyPool(ctx context.Context, rdb *goredis.Client, cfg proxy.Config, log *slog.Logger) (proxy.Pool, error) {
 	pool, err := redisproxy.New(rdb, redisproxy.Config{
 		KeyPrefix: cfg.KeyPrefix,
 		RateLimit: proxy.RateLimit{
@@ -37,6 +37,14 @@ func ProxyPool(rdb *goredis.Client, cfg proxy.Config, log *slog.Logger) (proxy.P
 	if err != nil {
 		return nil, fmt.Errorf("proxy pool: %w", err)
 	}
+
+	// Start the cooldown recovery loop so proxies evicted due to
+	// transient failures are automatically restored when the cooldown
+	// expires. Without this, the active pool permanently shrinks until
+	// the service is hard-restarted.
+	pool.StartCooldownRecovery(ctx)
+	log.Info("cooldown recovery loop started")
+
 	return pool, nil
 }
 

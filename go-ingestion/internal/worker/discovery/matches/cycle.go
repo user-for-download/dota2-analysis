@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math/rand/v2"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -19,6 +20,10 @@ import (
 	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/worker/discovery"
 	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/worker/fetcher"
 )
+
+// localRng is a private per-package random source, avoiding the global
+// math/rand mutex that serialises all callers across the entire process.
+var localRng = rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64()))
 
 type Config struct {
 	ExplorerURL string
@@ -115,6 +120,11 @@ func (c *Cycle) RunOnce(ctx context.Context) error {
 		if backoff > maxBackoff || backoff <= 0 {
 			backoff = maxBackoff
 		}
+		// Add random jitter of ±50% to prevent thundering herd when the
+		// upstream API rate-limits or goes down — all discovery workers
+		// will fail at the same time and retry simultaneously without jitter.
+		jitter := time.Duration(localRng.Int64N(int64(backoff)))
+		backoff = backoff/2 + jitter/2
 		select {
 		case <-ctx.Done():
 			return ctx.Err()

@@ -191,7 +191,7 @@ func (f *Fetcher) fetchOne(ctx context.Context, matchID int64) ([]byte, error) {
 	}
 
 	// ── Normal path: proxy-aware fetch via doer ──
-	targetURL := f.cfg.UpstreamURL + "/" + strconv.FormatInt(matchID, 10)
+	targetURL := strings.TrimRight(f.cfg.UpstreamURL, "/") + "/" + strconv.FormatInt(matchID, 10)
 	f.log.Debug("fetcher: attempting proxy fetch", "url", targetURL)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, targetURL, nil)

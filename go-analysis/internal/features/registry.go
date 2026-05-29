@@ -88,8 +88,8 @@ func DefaultRegistry() *FeatureRegistry {
 	r.Register("attr_is_int", func(_ profiles.Repository, catalog domain.HeroCatalog) (FeatureSource, error) {
 		return NewAttrIsIntSource(catalog), nil
 	})
-	r.Register("attr_fit_score", func(repo profiles.Repository, catalog domain.HeroCatalog) (FeatureSource, error) {
-		return NewAttrFitScoreSource(repo, catalog), nil
+	r.Register("attr_fit_score", func(_ profiles.Repository, catalog domain.HeroCatalog) (FeatureSource, error) {
+		return NewAttrFitScoreSource(catalog), nil
 	})
 
 	// ── Draft position (same within group) ──────────────────────────
@@ -174,7 +174,7 @@ func DefaultSources(repo profiles.Repository, catalog domain.HeroCatalog) []Feat
 		NewAttrIsStrSource(catalog),
 		NewAttrIsAgiSource(catalog),
 		NewAttrIsIntSource(catalog),
-		NewAttrFitScoreSource(repo, catalog),
+		NewAttrFitScoreSource(catalog),
 		// Draft position (15-16) — same within group
 		NewDraftSlotNormSource(),
 		NewIsPickPhaseSource(),

@@ -137,7 +137,31 @@ func main() {
 		explainer = linear.NewExplainer(linearScor)
 	}
 
-	recommender := recommend.NewService(builder, scorer, explainer, catalog)
+	// Build the concrete service so we can call WithValueScorer (which is
+	// defined on *Service, not on the Recommender interface).
+	svc := recommend.NewService(builder, scorer, explainer, catalog)
+
+	// ── Value model (optional) ──────────────────────────────────────────
+	// The value model is a separate LGBM scorer trained to predict binary
+	// match outcome.  When available, the recommender creates a 70/30
+	// balanced ensemble (imitation + value) that routes high-confidence
+	// value calls to the value model and falls back to imitation otherwise.
+	// This is entirely optional: if the model dir is missing or loading
+	// fails we continue with 100% imitation mode.
+	var recommender recommend.Recommender = svc
+	if cfg.Analytics.ValueModelDir != "" {
+		valueScorer, vErr := lgbm.LoadModel(cfg.Analytics.ValueModelDir)
+		if vErr != nil {
+			log.Warn("value model not loaded, running in imitation-only mode",
+				"path", cfg.Analytics.ValueModelDir, "err", vErr)
+		} else {
+			recommender = svc.WithValueScorer(valueScorer)
+			log.Info("value model loaded",
+				"version", valueScorer.Version())
+		}
+	} else {
+		log.Info("VALUE_MODEL_DIR not set, running in imitation-only mode")
+	}
 
 	// Guard: lgbmScvr may be nil (LGBM load failed, falling back to linear).
 	// A nil *ReloadableScorer typed to ModelReloader is NOT a nil interface

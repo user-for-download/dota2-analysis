@@ -151,18 +151,29 @@ func (s *Seen) CheckBatch(ctx context.Context, keys []string) ([]bool, error) {
 }
 
 func (s *Seen) smismember(ctx context.Context, keys []string) ([]bool, error) {
-	pipe := s.rdb.Pipeline()
-	cmds := make([]*goredis.BoolCmd, len(keys))
+	// Redis 6.2+ supports SMISMEMBER — one O(N) command instead of N commands
+	// over the wire.  Convert []string to []any for the variadic interface{} API.
+	args := make([]any, len(keys))
 	for i, k := range keys {
-		cmds[i] = pipe.SIsMember(ctx, s.keys.set(), k)
+		args[i] = k
 	}
-	_, err := pipe.Exec(ctx)
+	res, err := s.rdb.SMIsMember(ctx, s.keys.set(), args...).Result()
 	if err != nil {
-		return nil, err
+		// Fallback: older Redis that doesn't support SMISMEMBER.
+		pipe := s.rdb.Pipeline()
+		cmds := make([]*goredis.BoolCmd, len(keys))
+		for i, k := range keys {
+			cmds[i] = pipe.SIsMember(ctx, s.keys.set(), k)
+		}
+		_, err2 := pipe.Exec(ctx)
+		if err2 != nil {
+			return nil, err2
+		}
+		out := make([]bool, len(keys))
+		for i, cmd := range cmds {
+			out[i] = cmd.Val()
+		}
+		return out, nil
 	}
-	out := make([]bool, len(keys))
-	for i, cmd := range cmds {
-		out[i] = cmd.Val()
-	}
-	return out, nil
+	return res, nil
 }

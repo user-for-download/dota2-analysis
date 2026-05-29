@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"log/slog"
-	"math/rand"
+	"math/rand/v2"
 	"net/http"
 	"os"
 	"os/signal"
@@ -18,6 +18,10 @@ import (
 	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/proxy/redisproxy"
 	storageredis "github.com/user-for-download/dota2-analysis/go-ingestion/internal/storage/redis"
 )
+
+// localRng is a private per-package random source, avoiding the global
+// math/rand mutex that serialises all callers across the entire process.
+var localRng = rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64()))
 
 func main() {
 	log := bootstrap.NewLoggerFromEnv()
@@ -137,7 +141,7 @@ func main() {
 		if topUpInterval <= 0 || topUpInterval < time.Second {
 			return topUpInterval
 		}
-		jitter := time.Duration(rand.Int63n(int64(topUpInterval / 10)))
+		jitter := time.Duration(localRng.Int64N(int64(topUpInterval / 10)))
 		return topUpInterval + jitter
 	}
 

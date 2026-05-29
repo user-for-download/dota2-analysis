@@ -367,6 +367,7 @@ func TestRecommendEndpoint(t *testing.T) {
 		UserTeam:      "radiant",
 		RadiantTeamID: 100,
 		DireTeamID:    200,
+		Slot:         1, // 1-based; maps to 0-based slot 0 = first Radiant ban
 		K:            3,
 	}
 	r := httptest.NewRequest(http.MethodPost, "/v1/recommend", jsonBody(t, body))

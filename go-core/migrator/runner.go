@@ -22,6 +22,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"hash/fnv"
 	"io/fs"
 	"log/slog"
 	"regexp"
@@ -44,8 +45,9 @@ type migration struct {
 // Run applies all pending migrations from fsys in lexicographic version order.
 //
 // It connects to the database at dsn, creates the schema_migrations tracking
-// table if it does not exist, acquires an advisory lock (13625) to prevent
-// concurrent migrators, and applies each un-applied migration in a transaction.
+// table if it does not exist, acquires an advisory lock (hash of dsn) to
+// prevent concurrent migrators, and applies each un-applied migration in a
+// transaction.
 func Run(ctx context.Context, dsn string, fsys fs.FS, log *slog.Logger) error {
 	db, err := openWithRetry(ctx, dsn, 30*time.Second, log)
 	if err != nil {
@@ -63,13 +65,29 @@ func Run(ctx context.Context, dsn string, fsys fs.FS, log *slog.Logger) error {
 		}
 	}()
 
-	locked, err := tryAdvisoryLock(ctx, conn)
+	// Generate a unique lock ID from the DSN to prevent collisions with other
+	// services sharing the same PostgreSQL cluster.  The fnv-64 hash of the DSN
+	// is folded into a int4 range to fit pg_locks.locktype.
+	lockID := lockIDFromDSN(dsn)
+
+	// Release any stale lock left by a crashed previous instance.
+	if _, err := conn.ExecContext(ctx, "SELECT pg_advisory_unlock_all()"); err != nil {
+		return fmt.Errorf("clean stale locks: %w", err)
+	}
+
+	locked, err := tryAdvisoryLock(ctx, conn, lockID)
 	if err != nil {
 		return fmt.Errorf("advisory lock: %w", err)
 	}
 	if !locked {
 		return fmt.Errorf("another migrator instance is already running (lock held)")
 	}
+
+	// Critical: release the session-level advisory lock before conn.Close()
+	// returns the connection to the pool.  If the lock is held when the
+	// connection goes back to the pool, any component that borrows this
+	// connection inherits the live lock state, causing spurious collisions.
+	defer releaseAdvisoryLock(ctx, conn, lockID, log)
 
 	if err := ensureTable(ctx, conn); err != nil {
 		return fmt.Errorf("ensure schema_migrations: %w", err)
@@ -103,10 +121,25 @@ func Run(ctx context.Context, dsn string, fsys fs.FS, log *slog.Logger) error {
 	return nil
 }
 
-func tryAdvisoryLock(ctx context.Context, conn *sql.Conn) (bool, error) {
+// lockIDFromDSN hashes the connection DSN into a positive int4 for use as a
+// PostgreSQL advisory lock ID, preventing collisions with other services.
+func lockIDFromDSN(dsn string) int32 {
+	h := fnv.New32a()
+	h.Write([]byte(dsn))
+	// Clear the sign bit to ensure a positive result.
+	return int32(h.Sum32() & 0x7fffffff)
+}
+
+func tryAdvisoryLock(ctx context.Context, conn *sql.Conn, lockID int32) (bool, error) {
 	var locked bool
-	err := conn.QueryRowContext(ctx, "SELECT pg_try_advisory_lock(13625)").Scan(&locked)
+	err := conn.QueryRowContext(ctx, "SELECT pg_try_advisory_lock($1)", lockID).Scan(&locked)
 	return locked, err
+}
+
+func releaseAdvisoryLock(ctx context.Context, conn *sql.Conn, lockID int32, log *slog.Logger) {
+	if _, err := conn.ExecContext(ctx, "SELECT pg_advisory_unlock($1)", lockID); err != nil {
+		log.Warn("failed to release advisory lock", "err", err)
+	}
 }
 
 func openWithRetry(ctx context.Context, dsn string, max time.Duration, log *slog.Logger) (*sql.DB, error) {

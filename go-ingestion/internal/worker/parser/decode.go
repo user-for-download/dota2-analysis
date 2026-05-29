@@ -46,7 +46,7 @@ type rawMatch struct {
 	Players      []rawPlayer      `json:"players"`
 	PicksBans    []rawPickBan     `json:"picks_bans"`
 	DraftTimings []rawDraftTiming `json:"draft_timings"`
-	Objectives   []rawObjective   `json:"objectives"`
+	Objectives   []json.RawMessage `json:"objectives"`
 	Chat         []rawChat        `json:"chat"`
 	Teamfights   []rawTeamfight   `json:"teamfights"`
 	RadiantGoldAdv []int32        `json:"radiant_gold_adv"`

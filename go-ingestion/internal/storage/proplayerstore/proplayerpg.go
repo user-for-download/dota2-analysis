@@ -3,6 +3,7 @@ package proplayerstore
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -17,12 +18,17 @@ func NewPG(p *pgxpool.Pool) *PG {
 
 var _ Writer = (*PG)(nil)
 
-const upsertSQL = `
+const upsertBulkSQL = `
 INSERT INTO pro_players (account_id, steamid, personaname, name, country_code,
     fantasy_role, team_id, team_name, team_tag, is_pro, is_locked,
     avatar, last_match_time, last_login, full_history_time,
     cheese, fh_unavailable, loccountrycode, plus, updated_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, now())
+SELECT * FROM UNNEST(
+    $1::bigint[], $2::text[], $3::text[], $4::text[], $5::text[],
+    $6::int[], $7::bigint[], $8::text[], $9::text[], $10::bool[], $11::bool[],
+    $12::text[], $13::timestamptz[], $14::timestamptz[], $15::timestamptz[],
+    $16::int[], $17::bool[], $18::text[], $19::bool[], now()
+)
 ON CONFLICT (account_id) DO UPDATE SET
     steamid = EXCLUDED.steamid,
     personaname = EXCLUDED.personaname,
@@ -49,26 +55,58 @@ func (r *PG) Upsert(ctx context.Context, players []ProPlayer) (int, error) {
 	if len(players) == 0 {
 		return 0, nil
 	}
-	tx, err := r.pool.Begin(ctx)
-	if err != nil {
-		return 0, fmt.Errorf("begin: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
 
-	var n int
-	for _, p := range players {
-		if _, err := tx.Exec(ctx, upsertSQL,
-			p.AccountID, p.SteamID, p.Personaname, p.Name, p.CountryCode,
-			p.FantasyRole, p.TeamID, p.TeamName, p.TeamTag, p.IsPro, p.IsLocked,
-			p.Avatar, p.LastMatchTime, p.LastLogin, p.FullHistoryTime,
-			p.Cheese, p.FhUnavailable, p.LocCountryCode, p.Plus,
-		); err != nil {
-			return n, fmt.Errorf("upsert pro player %d: %w", p.AccountID, err)
-		}
-		n++
+	n := len(players)
+	accountIDs := make([]int64, n)
+	steamIDs := make([]*string, n)
+	personanames := make([]*string, n)
+	names := make([]*string, n)
+	countryCodes := make([]*string, n)
+	fantasyRoles := make([]*int, n)
+	teamIDs := make([]*int64, n)
+	teamNames := make([]*string, n)
+	teamTags := make([]*string, n)
+	isPros := make([]*bool, n)
+	isLockeds := make([]*bool, n)
+	avatars := make([]*string, n)
+	lastMatchTimes := make([]*time.Time, n)
+	lastLogins := make([]*time.Time, n)
+	fullHistoryTimes := make([]*time.Time, n)
+	cheeses := make([]*int, n)
+	fhUnavailables := make([]*bool, n)
+	locCountryCodes := make([]*string, n)
+	pluses := make([]*bool, n)
+
+	for i, p := range players {
+		accountIDs[i] = p.AccountID
+		steamIDs[i] = p.SteamID
+		personanames[i] = p.Personaname
+		names[i] = p.Name
+		countryCodes[i] = p.CountryCode
+		fantasyRoles[i] = p.FantasyRole
+		teamIDs[i] = p.TeamID
+		teamNames[i] = p.TeamName
+		teamTags[i] = p.TeamTag
+		isPros[i] = p.IsPro
+		isLockeds[i] = p.IsLocked
+		avatars[i] = p.Avatar
+		lastMatchTimes[i] = p.LastMatchTime
+		lastLogins[i] = p.LastLogin
+		fullHistoryTimes[i] = p.FullHistoryTime
+		cheeses[i] = p.Cheese
+		fhUnavailables[i] = p.FhUnavailable
+		locCountryCodes[i] = p.LocCountryCode
+		pluses[i] = p.Plus
 	}
-	if err := tx.Commit(ctx); err != nil {
-		return n, fmt.Errorf("commit: %w", err)
+
+	_, err := r.pool.Exec(ctx, upsertBulkSQL,
+		accountIDs, steamIDs, personanames, names, countryCodes,
+		fantasyRoles, teamIDs, teamNames, teamTags, isPros, isLockeds,
+		avatars, lastMatchTimes, lastLogins, fullHistoryTimes,
+		cheeses, fhUnavailables, locCountryCodes, pluses,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("bulk upsert pro players: %w", err)
 	}
 	return n, nil
 }

@@ -1,7 +1,6 @@
 -- KEYS[1] = set (ZSET of candidates)
 -- KEYS[2] = stats:<url> (HASH)
 -- KEYS[3] = cooldown ZSET
--- KEYS[4] = cooldown entry TTL key
 -- ARGV[1] = url
 -- ARGV[2] = failure penalty (float)
 -- ARGV[3] = max consecutive failures (int, 0 = disabled)

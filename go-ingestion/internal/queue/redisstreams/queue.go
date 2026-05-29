@@ -45,6 +45,22 @@ const (
 	fieldReason  = "reason"
 )
 
+// luaZAddAckAtomic atomically adds a ZSet member and acks the stream message so
+// that a crash between ZAdd and XAck doesn't lose the message.
+//
+//	KEYS[1] = ZSet key, KEYS[2] = Stream key, KEYS[3] = Group name
+//	ARGV[1] = score, ARGV[2] = member, ARGV[3] = task ID ("" = skip ack), ARGV[4] = delete_on_ack ("1"|"0")
+var luaZAddAckAtomic = goredis.NewScript(`
+redis.call('ZADD', KEYS[1], ARGV[1], ARGV[2])
+if ARGV[3] ~= '' then
+    redis.call('XACK', KEYS[2], KEYS[3], ARGV[3])
+    if ARGV[4] == '1' then
+        redis.call('XDEL', KEYS[2], ARGV[3])
+    end
+end
+return 1
+`)
+
 // luaRequeueAtomic atomically adds a new stream entry, acks the old one,
 // and deletes the old entry. Without this, a crash between XAdd and XAck
 // duplicates the message.
@@ -219,11 +235,14 @@ func (q *Queue) Retry(ctx context.Context, t queue.Task, reason string) error {
 	return q.requeue(ctx, t)
 }
 
-// asyncEnvelope is a deterministic envelope that preserves the full task
-// state (payload, headers, retry count) across the async ZSet round-trip.
-// Without this wrapper, Headers (which carry OTel trace context) are silently
-// dropped, breaking distributed traces on retry.
+// asyncEnvelope preserves full task state across the async ZSet round-trip.
+// The ID field prevents ZSet member collisions when two different tasks share
+// identical payload/headers/retry count (otherwise ZADD would overwrite one
+// with the other since the member is the JSON-serialized envelope).
+// Headers (which carry OTel trace context) are also preserved — without this
+// wrapper they'd be silently dropped, breaking distributed traces on retry.
 type asyncEnvelope struct {
+	ID         string            `json:"id,omitempty"`
 	Payload    []byte            `json:"p"`
 	Headers    map[string]string `json:"h,omitempty"`
 	RetryCount int               `json:"r"`
@@ -235,6 +254,7 @@ func (q *Queue) scheduleAsyncRetry(ctx context.Context, t queue.Task) error {
 	}
 
 	env := asyncEnvelope{
+		ID:         t.ID,
 		Payload:    t.Payload,
 		Headers:    t.Headers,
 		RetryCount: t.RetryCount,
@@ -251,15 +271,14 @@ func (q *Queue) scheduleAsyncRetry(ctx context.Context, t queue.Task) error {
 	}
 	score := float64(time.Now().Add(d).Unix())
 
-	pipe := q.rdb.Pipeline()
-	pipe.ZAdd(ctx, q.asyncCfg.ZSetKey, goredis.Z{Score: score, Member: string(member)})
-	if t.ID != "" {
-		pipe.XAck(ctx, q.cfg.Stream, q.cfg.Group, t.ID)
-		if q.cfg.DeleteOnAck {
-			pipe.XDel(ctx, q.cfg.Stream, t.ID)
-		}
+	deleteOnAck := "0"
+	if q.cfg.DeleteOnAck {
+		deleteOnAck = "1"
 	}
-	_, err = pipe.Exec(ctx)
+	_, err = luaZAddAckAtomic.Run(ctx, q.rdb,
+		[]string{q.asyncCfg.ZSetKey, q.cfg.Stream, q.cfg.Group},
+		score, string(member), t.ID, deleteOnAck,
+	).Int64()
 	if err != nil {
 		return fmt.Errorf("schedule async retry: %w", err)
 	}
@@ -523,31 +542,39 @@ func (q *Queue) staleRecoveryLoop(ctx context.Context) {
 			if len(tasks) == 0 {
 				continue
 			}
-			requeued := 0
-			dropped := 0
-			for _, t := range tasks {
-				// Re-enqueue natively via XADD — preserves RetryCount and Headers
-				// WITHOUT touching the opaque Payload bytes.
-				values := map[string]any{
-					fieldPayload: t.Payload,
-					fieldRetry:   strconv.Itoa(t.RetryCount),
-				}
-				for k, v := range t.Headers {
-					values["h:"+k] = v
-				}
-				err := q.rdb.XAdd(ctx, &goredis.XAddArgs{
-					Stream: q.cfg.Stream,
-					Values: values,
-				}).Err()
-				if err != nil {
-					log.Warn("stale re-enqueue failed", "id", t.ID, "err", err)
-					dropped++
-					continue
-				}
-				_ = q.Ack(ctx, t.ID)
-				requeued++
+		requeued := 0
+		dropped := 0
+		for _, t := range tasks {
+			// TODO: XAUTOCLAIM assigns stale messages to the subscriber
+			// consumer, but Subscribe's XREADGROUP uses ">" which skips the
+			// PEL.  The XAdd+XAck below creates a duplicate stream entry so
+			// the subscriber picks it up via ">".  If the original consumer
+			// was merely slow (not dead), it will also finish and confirm the
+			// original, duplicating processing.
+			//
+			// Proper fix: Subscribe should also read from the PEL (stream="0")
+			// and process claimed messages directly, removing the need for
+			// the re-enqueue XAdd below.
+			values := map[string]any{
+				fieldPayload: t.Payload,
+				fieldRetry:   strconv.Itoa(t.RetryCount),
 			}
-			log.Info("recovered stale", "count", len(tasks), "requeued", requeued, "dropped", dropped)
+			for k, v := range t.Headers {
+				values["h:"+k] = v
+			}
+			err := q.rdb.XAdd(ctx, &goredis.XAddArgs{
+				Stream: q.cfg.Stream,
+				Values: values,
+			}).Err()
+			if err != nil {
+				log.Warn("stale re-enqueue failed", "id", t.ID, "err", err)
+				dropped++
+				continue
+			}
+			_ = q.Ack(ctx, t.ID)
+			requeued++
+		}
+		log.Info("recovered stale", "count", len(tasks), "requeued", requeued, "dropped", dropped)
 		}
 	}
 }
@@ -558,8 +585,14 @@ const (
 )
 
 func (q *Queue) adjustForBackpressure(batch int, block time.Duration, baseBatch int, baseBlock time.Duration, log *slog.Logger) (int, time.Duration) {
-	pending := q.StreamLen()
-	inFlight := q.InFlightLen()
+	// Use InFlightLen (from XPending/count) NOT StreamLen (from XLen).
+	// XLen counts ALL entries in the stream, including acknowledged ones
+	// that have not yet been trimmed — it permanently hovers around the
+	// trimmed-length cap once the pipeline has processed that many
+	// messages, even with 0 unprocessed work, trapping workers in
+	// throttle/slow-poll mode forever.
+	pending := q.InFlightLen()
+	inFlight := pending
 
 	if pending > 10000 {
 		batch = max(batch/2, 1)

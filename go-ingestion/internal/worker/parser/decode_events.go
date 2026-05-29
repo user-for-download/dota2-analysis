@@ -7,14 +7,14 @@ import (
 	"github.com/user-for-download/dota2-analysis/go-core/domain"
 )
 
-func decodeObjectives(raw []rawObjective) []domain.Objective {
+func decodeObjectives(raw []json.RawMessage) []domain.Objective {
 	if len(raw) == 0 {
 		return nil
 	}
 	rows := make([]domain.Objective, 0, len(raw))
-	for _, o := range raw {
-		rawJSON, err := json.Marshal(o)
-		if err != nil {
+	for _, rawMsg := range raw {
+		var o rawObjective
+		if err := json.Unmarshal(rawMsg, &o); err != nil {
 			continue
 		}
 		keyStr := ""
@@ -30,7 +30,7 @@ func decodeObjectives(raw []rawObjective) []domain.Objective {
 			Key:        keyStr,
 			Value:      deref32(o.Value),
 			Unit:       derefStr(o.Unit),
-			Raw:        rawJSON,
+			Raw:        rawMsg, // original JSON from the API response, no re-marshal
 		})
 	}
 	return rows

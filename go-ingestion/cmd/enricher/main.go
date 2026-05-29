@@ -85,7 +85,7 @@ func main() {
 	defer rdb.Close()
 
 	// ── Proxy pool ────────────────────────────────────────────────
-	pool, err := bootstrap.ProxyPool(rdb.Master(), proxyCfg, log)
+	pool, err := bootstrap.ProxyPool(ctx, rdb.Master(), proxyCfg, log)
 	must(log, "proxy pool", err)
 
 	// ── Wait for proxies when direct access is disabled ───────────

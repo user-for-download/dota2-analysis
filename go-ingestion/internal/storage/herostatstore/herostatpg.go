@@ -65,6 +65,16 @@ func (r *PG) Upsert(ctx context.Context, stats []HeroStat) (int, error) {
 	if len(stats) == 0 {
 		return 0, nil
 	}
+
+	// ⚠️ Fix 2.1: Call ensure_hero_stubs ONCE with all IDs instead of per-hero.
+	ids := make([]int16, len(stats))
+	for i, s := range stats {
+		ids[i] = s.ID
+	}
+	if _, err := r.pool.Exec(ctx, "SELECT ensure_hero_stubs($1::smallint[])", ids); err != nil {
+		return 0, fmt.Errorf("hero stub check failed: %w", err)
+	}
+
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("begin: %w", err)
@@ -81,10 +91,6 @@ func (r *PG) Upsert(ctx context.Context, stats []HeroStat) (int, error) {
 		if s.ProPick != nil && *s.ProPick > 0 && s.ProWin != nil {
 			rate := float32(*s.ProWin) / float32(*s.ProPick)
 			proWinRate = &rate
-		}
-
-		if _, err := tx.Exec(ctx, "SELECT ensure_hero_stubs(ARRAY[$1::smallint])", s.ID); err != nil {
-			return n, fmt.Errorf("hero stub check failed: %w", err)
 		}
 
 		if _, err := tx.Exec(ctx, heroStatUpsertSQL,

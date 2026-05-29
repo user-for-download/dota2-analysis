@@ -20,6 +20,10 @@ import (
 	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/proxy/transport"
 )
 
+// maxResponseBodyBytes limits the total bytes read from any proxy response
+// body to prevent OOM from oversized or malicious responses.
+const maxResponseBodyBytes = 50 << 20 // 50 MB
+
 type Config struct {
 	Pool        proxy.Pool
 	Hold        time.Duration
@@ -226,13 +230,20 @@ func (d *Doer) doWithLease(ctx context.Context, req *http.Request, attempt int) 
 
 		// Eager-read the body inside the lease boundary to catch slow-proxy timeouts
 		// and guarantee the proxy is not overloaded by premature release.
-		bodyBytes, err := io.ReadAll(resp.Body)
+		// Read up to maxResponseBodyBytes+1 so we can detect truncation:
+		// if len(bodyBytes) exceeds the max, the response is too large.
+		bodyBytes, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBodyBytes+1))
 		if err != nil {
 			d.log.Debug("httpdo: failed to read response body", "proxy", proxyURL, "err", err)
 			lease.MarkFailure(context.WithoutCancel(ctx), fmt.Errorf("read body: %w", err))
 			return nil, err
 		}
-
+		if len(bodyBytes) > maxResponseBodyBytes {
+			err = fmt.Errorf("response body too large: %d bytes", len(bodyBytes))
+			d.log.Debug("httpdo: oversized response body", "proxy", proxyURL, "err", err)
+			lease.MarkFailure(context.WithoutCancel(ctx), err)
+			return nil, err
+		}
 		// Reconstruct the response body with an in-memory buffer so downstream consumers
 		// can read it instantly without any further network calls.
 		d.log.Debug("httpdo: request successful via proxy", "proxy", proxyURL, "status", resp.StatusCode, "bytes", len(bodyBytes))

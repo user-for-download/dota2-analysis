@@ -137,18 +137,18 @@ func (s *Store) Counts(ctx context.Context) (matchstore.Counts, error) {
 		SELECT
 			(SELECT COALESCE(sum(reltuples::bigint), 0)
 			 FROM pg_class c
-			 JOIN pg_namespace n ON n.oid = c.relnamespace
+			 JOIN pg_inherits i ON i.inhrelid = c.oid
+			 JOIN pg_class p ON p.oid = i.inhparent
+			 JOIN pg_namespace n ON n.oid = p.relnamespace
 			 WHERE n.nspname = 'public'
-			   AND c.relkind = 'r'
-			   AND c.relname IN ('matches', 'matches_default')
-			   AND NOT EXISTS (SELECT 1 FROM pg_inherits WHERE inhrelid = c.oid)),
+			   AND p.relname = 'matches'),
 			(SELECT COALESCE(sum(reltuples::bigint), 0)
 			 FROM pg_class c
-			 JOIN pg_namespace n ON n.oid = c.relnamespace
+			 JOIN pg_inherits i ON i.inhrelid = c.oid
+			 JOIN pg_class p ON p.oid = i.inhparent
+			 JOIN pg_namespace n ON n.oid = p.relnamespace
 			 WHERE n.nspname = 'public'
-			   AND c.relkind = 'r'
-			   AND c.relname IN ('player_matches', 'player_matches_default')
-			   AND NOT EXISTS (SELECT 1 FROM pg_inherits WHERE inhrelid = c.oid))
+			   AND p.relname = 'player_matches')
 	`).Scan(&c.Matches, &c.Players)
 	return c, err
 }

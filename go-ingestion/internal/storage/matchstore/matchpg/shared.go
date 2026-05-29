@@ -46,6 +46,14 @@ func nullIf0_f32(v float32) any {
 	return v
 }
 
+func negateBoolPtr(b *bool) *bool {
+	if b == nil {
+		return nil
+	}
+	v := !*b
+	return &v
+}
+
 func nullIfStr(v string) any {
 	if v == "" {
 		return nil

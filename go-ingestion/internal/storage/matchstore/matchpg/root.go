@@ -81,7 +81,7 @@ func (s *Store) upsertTeamMatches(ctx context.Context, tx pgx.Tx, m domain.Match
 
 	if m.DireTeamID != 0 {
 		_, err := tx.Exec(ctx, q,
-			int64(m.DireTeamID), int64(m.MatchID), m.StartTime, false, !m.RadiantWin, nullIf0_32(m.LeagueID),
+			int64(m.DireTeamID), int64(m.MatchID), m.StartTime, false, negateBoolPtr(m.RadiantWin), nullIf0_32(m.LeagueID),
 		)
 		if err != nil {
 			return fmt.Errorf("insert team_matches dire: %w", err)

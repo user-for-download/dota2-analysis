@@ -64,6 +64,7 @@ const (
 	KindTimeout   FailureKind = "timeout"
 	KindRateLimit FailureKind = "rate_limit"
 	KindNotFound  FailureKind = "not_found"
+	KindShutdown  FailureKind = "shutdown"
 	KindProxy     FailureKind = "proxy"
 	KindPayload   FailureKind = "payload"
 	KindDraftSchema FailureKind = "draft_schema"

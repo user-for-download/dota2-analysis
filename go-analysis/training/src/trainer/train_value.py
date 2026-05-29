@@ -5,36 +5,50 @@ import numpy as np
 import pandas as pd
 from datetime import datetime, timezone
 from trainer.config import Settings
-from trainer.feature_specs import FEATURE_SPEC_VERSION
+from trainer.feature_specs import FEATURE_SPEC_VERSION, FEATURES
+from trainer.features import compute_features
 
 
 def run(settings: Settings):
     """Train the value model.
 
     Binary classification: predicts whether the acting team wins
-    given a draft decision. Uses hero_id as a simplified feature
-    for now.
+    given a draft decision.  Uses the full 24-feature spec (same as
+    the imitation model) so the Go side can feed feature vectors
+    from the same builder to both scorers without a spec mismatch.
 
-    TODO: Replace with full 8-feature vector from feature_specs.py
-    once features.compute_features() is implemented.
-
-    Used to complement the imitation model in the combined
-    recommendation scorer.
+    The decisions Parquet has one row per actual pick (no negative
+    candidates).  We copy it, add label=1.0, and run the standard
+    feature computation pipeline.  The value model is a binary
+    classifier, not a ranker — no negative samples are needed.
     """
     decisions = pd.read_parquet(settings.artifact_dir / "decisions.parquet")
 
-    # Simplified: use hero_id as the only feature for now.
-    # TODO: Replace with full 8-feature vector from feature_specs.py.
-    feature_cols = ["hero_id"]
+    # Use actual pick decisions as the candidate set with label=1.0.
+    # compute_features needs the label column for its internal merge
+    # logic (distinguishing actual picks from undrafted heroes).
+    candidates = decisions.copy()
+    candidates["label"] = 1.0
+
+    # Compute the full 24-feature spec — must match the imitation
+    # model's feature set so the Go scorer accepts the vectors.
+    print("Computing features for value model...")
+    candidates = compute_features(candidates, settings, raw_decisions=decisions)
+
+    # Feature columns must match FEATURES in feature_specs.py.
+    feature_cols = [f["name"] for f in FEATURES]
+    missing = [c for c in feature_cols if c not in candidates.columns]
+    if missing:
+        raise RuntimeError(f"Missing feature columns for value model: {missing}")
 
     # Split by match_id (rows within a match are correlated).
-    match_ids = decisions["match_id"].unique()
+    match_ids = candidates["match_id"].unique()
     np.random.seed(42)
     np.random.shuffle(match_ids)
     split_idx = int(len(match_ids) * 0.8)
 
-    train_df = decisions[decisions["match_id"].isin(match_ids[:split_idx])]
-    val_df = decisions[decisions["match_id"].isin(match_ids[split_idx:])]
+    train_df = candidates[candidates["match_id"].isin(match_ids[:split_idx])]
+    val_df = candidates[candidates["match_id"].isin(match_ids[split_idx:])]
 
     X_train = train_df[feature_cols].values.astype(float)
     y_train = train_df["value_label"].values
@@ -65,13 +79,13 @@ def run(settings: Settings):
     booster.save_model(str(out_dir / "model.bin"))
 
     # Save feature spec — Must match the actual features used for training!
-    simplified_features = [{"name": col, "dtype": "f32"} for col in feature_cols]
     spec = {
         "version": FEATURE_SPEC_VERSION,
-        "features": simplified_features,
+        "features": FEATURES,
     }
     with open(out_dir / "spec.json", "w") as f:
         json.dump(spec, f, indent=2)
+    print(f"Saved spec.json with {len(FEATURES)} features (matching imitation spec)")
 
     # Save metadata
     dir_ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")

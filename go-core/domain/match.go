@@ -13,7 +13,7 @@ type MatchIdentity struct {
 	MatchSeqNum int64
 	StartTime   int64
 	Duration    int32
-	RadiantWin  bool
+	RadiantWin  *bool // nil = abandoned/incomplete match (per OpenDota API)
 }
 
 // MatchBuildings tracks tower/barracks status.

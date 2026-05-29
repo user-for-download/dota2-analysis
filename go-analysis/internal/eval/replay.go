@@ -44,12 +44,26 @@ func Replay(
 	}
 	rosters := make(map[int64]*sideRoster)
 
+	// Query patch date range to enable partition pruning on player_matches
+	// (partitioned by start_time).  Without a start_time filter, PG probes
+	// every quarterly partition — a full sequential scan of millions of rows.
+	var patchMinTS, patchMaxTS int64
+	if err := db.QueryRow(ctx, `
+		SELECT COALESCE(release_at, 0) AS min_ts,
+		       COALESCE(LEAD(release_at) OVER (ORDER BY release_at) - 1, 2147483647) AS max_ts
+		FROM patches WHERE id = $1
+	`, cfg.PatchID).Scan(&patchMinTS, &patchMaxTS); err != nil {
+		slog.Default().Warn("patch range query failed; partition pruning disabled", "err", err)
+	}
+
 	rosterRows, err := db.Query(ctx, `
-		SELECT match_id, is_radiant, array_agg(account_id ORDER BY player_slot) as players
+		SELECT match_id, is_radiant,
+		       COALESCE(array_remove(array_agg(account_id ORDER BY player_slot), NULL), ARRAY[]::bigint[]) AS players
 		FROM public.player_matches
 		WHERE patch_id = $1
+		  AND start_time BETWEEN $2 AND $3  -- partition pruning
 		GROUP BY match_id, is_radiant
-	`, cfg.PatchID)
+	`, cfg.PatchID, patchMinTS, patchMaxTS)
 	if err != nil {
 		// Roster data is optional — continue without it.
 		// Log the failure so operator knows player-comfort baselines will be degraded.
@@ -61,9 +75,12 @@ func Replay(
 		for rosterRows.Next() {
 			var matchID int64
 			var isRadiant bool
-			// Use *int64 to handle NULL account_ids (anonymous players).
-			var accountPtrs []*int64
-			if err := rosterRows.Scan(&matchID, &isRadiant, &accountPtrs); err != nil {
+			// array_remove filters out NULL account_ids (anonymous players), so
+			// a plain []int64 is safe — no nil pointers to worry about.
+			// COALESCE(..., ARRAY[]::bigint[]) handles the edge case where the
+			// entire array is NULL (all account_ids in the group were NULL).
+			var accountIDs []int64
+			if err := rosterRows.Scan(&matchID, &isRadiant, &accountIDs); err != nil {
 				continue
 			}
 			sr, ok := rosters[matchID]
@@ -71,11 +88,9 @@ func Replay(
 				sr = &sideRoster{}
 				rosters[matchID] = sr
 			}
-			ids := make([]domain.AccountID, 0, len(accountPtrs))
-			for _, ptr := range accountPtrs {
-				if ptr != nil {
-					ids = append(ids, domain.AccountID(*ptr))
-				}
+			ids := make([]domain.AccountID, len(accountIDs))
+			for i, id := range accountIDs {
+				ids[i] = domain.AccountID(id)
 			}
 			if isRadiant {
 				sr.radiant = ids
@@ -117,156 +132,188 @@ func Replay(
 	phaseMap := make(map[string]*phaseAcc)
 
 	// Match-level state.
+	type matchState struct {
+		radiantTeamID int64
+		direTeamID    int64
+		radiantPicks  []domain.HeroID
+		direPicks     []domain.HeroID
+		radiantBans   []domain.HeroID
+		direBans      []domain.HeroID
+		phaseTable    domain.PhaseTable
+		phases        []struct {
+			ord    int16
+			isPick bool
+			heroID int16
+			team   int16
+		}
+	}
 	var (
-		currentMatchID   int64
-		radiantTeamID    int64
-		direTeamID       int64
-		radiantPicks     []domain.HeroID
-		direPicks        []domain.HeroID
-		radiantBans      []domain.HeroID
-		direBans         []domain.HeroID
-		matchCount       int
-		processedMatches = make(map[int64]bool)
+		matchStateMap = make(map[int64]*matchState)
+		matchOrder    []int64
+		matchCount    int
 	)
 
-	phases := domain.CMPhaseTable()
+	// First pass: collect all rows per match so we can derive the phase table
+	// from the is_pick sequence rather than assuming ord maps 1:1 to CMPhaseTable.
+	// When bans are declined, ord values shift — using raw ord corrupts the
+	// backtest by looking up the wrong phase (e.g. a pick at ord=15 may actually
+	// be a Radiant pick, but CMPhaseTable.At(15) expects a Dire ban).
+	type rawRow struct {
+		matchID int64
+		ord     int16
+		isPick  bool
+		heroID  int16
+		team    int16
+		rTeamID int64
+		dTeamID int64
+	}
+	var allRows []rawRow
 
 	for rows.Next() {
-		var (
-			matchID int64
-			ord     int16
-			isPick  bool
-			heroID  int16
-			team    int16
-			rTeamID int64
-			dTeamID int64
-		)
-		if err := rows.Scan(&matchID, &ord, &isPick, &heroID, &team, &rTeamID, &dTeamID); err != nil {
+		var r rawRow
+		if err := rows.Scan(&r.matchID, &r.ord, &r.isPick, &r.heroID, &r.team, &r.rTeamID, &r.dTeamID); err != nil {
 			return nil, fmt.Errorf("scan row: %w", err)
 		}
-
-		// New match boundary.
-		if matchID != currentMatchID {
-			currentMatchID = matchID
-			if !processedMatches[matchID] {
-				processedMatches[matchID] = true
-				matchCount++
-			}
-			if cfg.Limit > 0 && matchCount > cfg.Limit {
-				break
-			}
-			radiantTeamID = rTeamID
-			direTeamID = dTeamID
-			radiantPicks = nil
-			direPicks = nil
-			radiantBans = nil
-			direBans = nil
-		}
-
-		slot := int(ord)
-		if slot >= phases.Len() {
-			// Skip slots beyond the standard phase table.
-			continue
-		}
-		phase, _ := phases.At(slot)
-
-		if !isPick {
-			// Record the ban and continue.
-			if team == 0 {
-				radiantBans = append(radiantBans, domain.HeroID(heroID))
-			} else {
-				direBans = append(direBans, domain.HeroID(heroID))
-			}
-			continue
-		}
-
-		// It's a pick — evaluate the baseline.
-		// Determine the user's perspective: "us" is the team making the pick.
-		userTeam := domain.SideUs
-		if domain.DraftTeam(team) == domain.DraftDire {
-			userTeam = domain.SideThem
-		}
-
-		// Build DraftState with all picks/bans BEFORE this slot.
-		// Look up player rosters from preloaded data (best effort).
-		var radiantRoster, direRoster []domain.AccountID
-		if sr, ok := rosters[matchID]; ok {
-			radiantRoster = sr.radiant
-			direRoster = sr.dire
-		}
-		ds := domain.NewDraftState(
-			domain.PatchID(cfg.PatchID),
-			userTeam,
-			domain.CMPhaseTable(),
-			domain.TeamID(radiantTeamID), domain.TeamID(direTeamID),
-			radiantRoster, direRoster,
-			radiantPicks, direPicks,
-			radiantBans, direBans,
-			slot,
-		)
-
-		legal := ds.LegalHeroes(catalog)
-		if len(legal) == 0 {
-			continue
-		}
-
-		var scores []domain.Score
-		if playerBaseline != nil {
-			// Use player-aware scoring with roster context.
-			roster := ds.Roster()
-			s, err := playerBaseline.ScoreWithRoster(ctx, roster, legal)
-			if err != nil {
-				// Fallback to uniform scores on error.
-				scores = uniformScores(legal)
-			} else {
-				scores = s
-			}
-		} else {
-			scores = baseline.Score(legal)
-		}
-		sort.Slice(scores, func(i, j int) bool {
-			return scores[i].Value > scores[j].Value
-		})
-
-		// Find the rank of the actual picked hero.
-		actualHero := domain.HeroID(heroID)
-		rank := -1
-		for i, s := range scores {
-			if s.Hero == actualHero {
-				rank = i + 1 // 1-based rank
-				break
-			}
-		}
-
-		// Record the pick for subsequent slots (must happen regardless of rank).
-		if team == 0 {
-			radiantPicks = append(radiantPicks, actualHero)
-		} else {
-			direPicks = append(direPicks, actualHero)
-		}
-
-		// If the hero wasn't in the scored list (shouldn't happen if legal), skip.
-		if rank < 0 {
-			continue
-		}
-
-		// Accumulate metrics for this phase.
-		acc, ok := phaseMap[phase.Name]
-		if !ok {
-			acc = &phaseAcc{}
-			phaseMap[phase.Name] = acc
-		}
-		acc.total++
-		if rank == 1 {
-			acc.correct++
-		}
-		acc.sumR1 += computeRecall(rank, 1)
-		acc.sumR3 += computeRecall(rank, 3)
-		acc.sumR5 += computeRecall(rank, 5)
-		acc.sumN10 += computeNDCG10(rank)
+		allRows = append(allRows, r)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate rows: %w", err)
+	}
+
+	// Build per-match state from collected rows.
+	for _, r := range allRows {
+		if cfg.Limit > 0 && matchCount > cfg.Limit {
+			break
+		}
+
+		ms, ok := matchStateMap[r.matchID]
+		if !ok {
+			matchCount++
+			ms = &matchState{
+				radiantTeamID: r.rTeamID,
+				direTeamID:    r.dTeamID,
+			}
+			matchStateMap[r.matchID] = ms
+			matchOrder = append(matchOrder, r.matchID)
+		}
+		ms.phases = append(ms.phases, struct {
+			ord    int16
+			isPick bool
+			heroID int16
+			team   int16
+		}{ord: r.ord, isPick: r.isPick, heroID: r.heroID, team: r.team})
+	}
+
+	// Derive phase tables from isPick sequences (handles declined bans).
+	for _, ms := range matchStateMap {
+		isPickSeq := make([]bool, len(ms.phases))
+		for i, p := range ms.phases {
+			isPickSeq[i] = p.isPick
+		}
+		ms.phaseTable = domain.DerivePhaseTable(isPickSeq)
+	}
+
+	// Second pass: process each match's rows using the derived phase table.
+	for _, matchID := range matchOrder {
+		ms := matchStateMap[matchID]
+
+		radiantPicks := ms.radiantPicks
+		direPicks := ms.direPicks
+		radiantBans := ms.radiantBans
+		direBans := ms.direBans
+
+		for localIdx, p := range ms.phases {
+			phase, ok := ms.phaseTable.At(localIdx)
+			if !ok {
+				continue
+			}
+
+			if !p.isPick {
+				// Record the ban and continue.
+				if p.team == 0 {
+					radiantBans = append(radiantBans, domain.HeroID(p.heroID))
+				} else {
+					direBans = append(direBans, domain.HeroID(p.heroID))
+				}
+				continue
+			}
+
+			// It's a pick — evaluate the baseline.
+			userTeam := domain.SideUs
+			if domain.DraftTeam(p.team) == domain.DraftDire {
+				userTeam = domain.SideThem
+			}
+
+			var radiantRoster, direRoster []domain.AccountID
+			if sr, ok := rosters[matchID]; ok {
+				radiantRoster = sr.radiant
+				direRoster = sr.dire
+			}
+			ds := domain.NewDraftState(
+				domain.PatchID(cfg.PatchID),
+				userTeam,
+				ms.phaseTable,
+				domain.TeamID(ms.radiantTeamID), domain.TeamID(ms.direTeamID),
+				radiantRoster, direRoster,
+				radiantPicks, direPicks,
+				radiantBans, direBans,
+				localIdx,
+			)
+
+			legal := ds.LegalHeroes(catalog)
+			if len(legal) == 0 {
+				continue
+			}
+
+			var scores []domain.Score
+			if playerBaseline != nil {
+				roster := ds.Roster()
+				s, err := playerBaseline.ScoreWithRoster(ctx, roster, legal)
+				if err != nil {
+					scores = uniformScores(legal)
+				} else {
+					scores = s
+				}
+			} else {
+				scores = baseline.Score(legal)
+			}
+			sort.Slice(scores, func(i, j int) bool {
+				return scores[i].Value > scores[j].Value
+			})
+
+			actualHero := domain.HeroID(p.heroID)
+			rank := -1
+			for i, s := range scores {
+				if s.Hero == actualHero {
+					rank = i + 1
+					break
+				}
+			}
+
+			if p.team == 0 {
+				radiantPicks = append(radiantPicks, actualHero)
+			} else {
+				direPicks = append(direPicks, actualHero)
+			}
+
+			if rank < 0 {
+				continue
+			}
+
+			acc, ok := phaseMap[phase.Name]
+			if !ok {
+				acc = &phaseAcc{}
+				phaseMap[phase.Name] = acc
+			}
+			acc.total++
+			if rank == 1 {
+				acc.correct++
+			}
+			acc.sumR1 += computeRecall(rank, 1)
+			acc.sumR3 += computeRecall(rank, 3)
+			acc.sumR5 += computeRecall(rank, 5)
+			acc.sumN10 += computeNDCG10(rank)
+		}
 	}
 
 	// Build per-phase results.

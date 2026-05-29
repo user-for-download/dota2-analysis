@@ -24,9 +24,12 @@ CREATE EXTENSION IF NOT EXISTS pg_cron;
 CREATE OR REPLACE FUNCTION analytics.refresh_mv_team_hero_profile_locked()
 RETURNS VOID LANGUAGE plpgsql AS $$
 BEGIN
-    IF pg_try_advisory_lock(hashtext('r_mv_team_hero_profile')) THEN
+    -- Use xact-level lock (pg_try_advisory_xact_lock) so it's auto-released
+    -- on abort if REFRESH MATERIALIZED VIEW fails. Session-level locks
+    -- (pg_try_advisory_lock) are never released on function abort, causing
+    -- permanent freeze of all future cron executions.
+    IF pg_try_advisory_xact_lock(hashtext('r_mv_team_hero_profile')) THEN
         REFRESH MATERIALIZED VIEW CONCURRENTLY analytics.mv_team_hero_profile;
-        PERFORM pg_advisory_unlock(hashtext('r_mv_team_hero_profile'));
     ELSE
         RAISE NOTICE 'Skipping mv_team_hero_profile: lock held';
     END IF;
@@ -36,9 +39,8 @@ $$;
 CREATE OR REPLACE FUNCTION analytics.refresh_mv_hero_synergy_locked()
 RETURNS VOID LANGUAGE plpgsql AS $$
 BEGIN
-    IF pg_try_advisory_lock(hashtext('r_mv_hero_synergy')) THEN
+    IF pg_try_advisory_xact_lock(hashtext('r_mv_hero_synergy')) THEN
         REFRESH MATERIALIZED VIEW CONCURRENTLY analytics.mv_hero_synergy;
-        PERFORM pg_advisory_unlock(hashtext('r_mv_hero_synergy'));
     ELSE
         RAISE NOTICE 'Skipping mv_hero_synergy: lock held';
     END IF;
@@ -48,9 +50,8 @@ $$;
 CREATE OR REPLACE FUNCTION analytics.refresh_mv_hero_counter_locked()
 RETURNS VOID LANGUAGE plpgsql AS $$
 BEGIN
-    IF pg_try_advisory_lock(hashtext('r_mv_hero_counter')) THEN
+    IF pg_try_advisory_xact_lock(hashtext('r_mv_hero_counter')) THEN
         REFRESH MATERIALIZED VIEW CONCURRENTLY analytics.mv_hero_counter;
-        PERFORM pg_advisory_unlock(hashtext('r_mv_hero_counter'));
     ELSE
         RAISE NOTICE 'Skipping mv_hero_counter: lock held';
     END IF;
@@ -60,9 +61,8 @@ $$;
 CREATE OR REPLACE FUNCTION analytics.refresh_mv_player_team_history_locked()
 RETURNS VOID LANGUAGE plpgsql AS $$
 BEGIN
-    IF pg_try_advisory_lock(hashtext('r_mv_player_team_history')) THEN
+    IF pg_try_advisory_xact_lock(hashtext('r_mv_player_team_history')) THEN
         REFRESH MATERIALIZED VIEW CONCURRENTLY analytics.mv_player_team_history;
-        PERFORM pg_advisory_unlock(hashtext('r_mv_player_team_history'));
     ELSE
         RAISE NOTICE 'Skipping mv_player_team_history: lock held';
     END IF;
@@ -72,9 +72,8 @@ $$;
 CREATE OR REPLACE FUNCTION analytics.refresh_mv_player_hero_profile_locked()
 RETURNS VOID LANGUAGE plpgsql AS $$
 BEGIN
-    IF pg_try_advisory_lock(hashtext('r_mv_player_hero_profile')) THEN
+    IF pg_try_advisory_xact_lock(hashtext('r_mv_player_hero_profile')) THEN
         REFRESH MATERIALIZED VIEW CONCURRENTLY analytics.mv_player_hero_profile;
-        PERFORM pg_advisory_unlock(hashtext('r_mv_player_hero_profile'));
     ELSE
         RAISE NOTICE 'Skipping mv_player_hero_profile: lock held';
     END IF;

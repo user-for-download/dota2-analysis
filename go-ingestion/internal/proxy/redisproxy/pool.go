@@ -116,7 +116,7 @@ func (p *Pool) Acquire(ctx context.Context, hold time.Duration) (*proxy.Lease, e
 	res, err := p.scriptAcquire.Run(
 		ctx, p.rdb,
 		[]string{p.keys.set(), p.keys.leased(), leaseKey},
-		ttlSec, token, 20, mathrand.Int63(),
+		ttlSec, token, 20, mathrand.Int63(), time.Now().Unix(),
 	).Result()
 	if err != nil {
 		if errors.Is(err, goredis.Nil) {
@@ -152,15 +152,29 @@ func (p *Pool) Replace(ctx context.Context, healthy []string) error {
 		return fmt.Errorf("get current proxies: %w", err)
 	}
 
+	// ⚠️ Also scan the cooldown ZSET — proxies in cooldown retain their stats
+	// hashes and will be resurrected by recoverFromCooldown if not cleaned up.
+	inCooldown, err := p.rdb.ZRange(ctx, p.keys.cooldown(), 0, -1).Result()
+	if err != nil {
+		return fmt.Errorf("get cooldown proxies: %w", err)
+	}
+
 	newSet := make(map[string]bool, len(healthy))
 	for _, url := range healthy {
 		newSet[url] = true
 	}
 
-	var toDelete []string
+	var statsToDelete []string
+	var cooldownToRemove []string
 	for _, url := range current {
 		if !newSet[url] {
-			toDelete = append(toDelete, p.keys.stats(url))
+			statsToDelete = append(statsToDelete, p.keys.stats(url))
+		}
+	}
+	for _, url := range inCooldown {
+		if !newSet[url] {
+			statsToDelete = append(statsToDelete, p.keys.stats(url))
+			cooldownToRemove = append(cooldownToRemove, url)
 		}
 	}
 
@@ -176,8 +190,21 @@ func (p *Pool) Replace(ctx context.Context, healthy []string) error {
 		}
 		pipe.ZAdd(ctx, p.keys.set(), members...)
 	}
-	if len(toDelete) > 0 {
-		pipe.Del(ctx, toDelete...)
+	// Delete stats hashes for removed proxies (deduplicated).
+	if len(statsToDelete) > 0 {
+		seen := make(map[string]bool, len(statsToDelete))
+		unique := make([]string, 0, len(statsToDelete))
+		for _, k := range statsToDelete {
+			if !seen[k] {
+				seen[k] = true
+				unique = append(unique, k)
+			}
+		}
+		pipe.Del(ctx, unique...)
+	}
+	// Remove zombie proxies from cooldown ZSET.
+	for _, url := range cooldownToRemove {
+		pipe.ZRem(ctx, p.keys.cooldown(), url)
 	}
 	if _, err := pipe.Exec(ctx); err != nil {
 		return fmt.Errorf("replace pipeline: %w", err)
@@ -311,7 +338,7 @@ func (p *Pool) recordFailure(url string) func(context.Context, error) error {
 		}
 		res, err := p.scriptRecordFailure.Run(
 			ctx, p.rdb,
-			[]string{p.keys.set(), p.keys.stats(url), p.keys.cooldown(), p.keys.cooldownEntry(url)},
+			[]string{p.keys.set(), p.keys.stats(url), p.keys.cooldown()},
 			url, p.cfg.Ranking.FailurePenalty, p.cfg.MaxFailures, msg, coolSecs, time.Now().Unix(),
 		).Int64()
 		if err != nil && !errors.Is(err, goredis.Nil) {

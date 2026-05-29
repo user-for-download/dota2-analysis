@@ -2,6 +2,7 @@ package ingester
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strconv"
@@ -89,6 +90,9 @@ func isDuplicateConstraint(err error) bool {
 func classify(err error) metrics.FailureKind {
 	if err == nil {
 		return metrics.KindUnknown
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return metrics.KindShutdown
 	}
 	ce := ClassifyDBError(err)
 	if ce != nil {

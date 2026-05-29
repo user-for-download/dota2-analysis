@@ -36,8 +36,12 @@ def run(settings: Settings):
     # Compute Recall@5 per decision — is the actual pick in the top 5?
     recall_at_5 = []
     
-    # Sort to ensure predictions align with groups
-    decisions = decisions.sort_values(["match_id", "slot"])
+    # Sort to ensure predictions align with groups.
+    # reset_index(drop=True) is critical: groupby(...).index is a pandas Index,
+    # but predictions is a positional numpy array.  Without reset_index the
+    # index labels may not align with positional indices after sorting, causing
+    # preds[group.index] to fetch wrong rows.
+    decisions = decisions.sort_values(["match_id", "slot"]).reset_index(drop=True)
     X = decisions[feature_cols].values.astype(float)
     predictions = booster.predict(X)
 

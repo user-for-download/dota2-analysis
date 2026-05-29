@@ -106,14 +106,29 @@ func TestDefaultWeights(t *testing.T) {
 	})
 	s := NewScorer(spec)
 	w := s.Weights()
-	if len(w) != 8 {
-		t.Errorf("got %d weights, want 8", len(w))
+	if len(w) != 24 {
+		t.Errorf("got %d weights, want 24 (all features must have non-zero weights)", len(w))
 	}
-	// Spot-check known values.
+	// Spot-check known values across categories.
 	if w["team_wr_shrunk"] != 0.30 {
 		t.Errorf("team_wr_shrunk = %f, want 0.30", w["team_wr_shrunk"])
 	}
 	if w["star_threat"] != -0.10 {
 		t.Errorf("star_threat = %f, want -0.10", w["star_threat"])
+	}
+	if w["hero_wr"] != 0.12 {
+		t.Errorf("hero_wr = %f, want 0.12", w["hero_wr"])
+	}
+	if w["hero_pick_rate"] != 0.08 {
+		t.Errorf("hero_pick_rate = %f, want 0.08", w["hero_pick_rate"])
+	}
+	if w["attr_fit_score"] != 0.04 {
+		t.Errorf("attr_fit_score = %f, want 0.04", w["attr_fit_score"])
+	}
+	// No weight should be zero (silent discard detection).
+	for name, weight := range w {
+		if weight == 0 {
+			t.Errorf("feature %q has zero weight — contributes nothing", name)
+		}
 	}
 }

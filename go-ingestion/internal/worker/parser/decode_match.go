@@ -47,7 +47,7 @@ func decodeMatchRoot(rm *rawMatch) domain.Match {
 			MatchSeqNum: deref64(rm.MatchSeqNum),
 			StartTime:   rm.StartTime,
 			Duration:    rm.Duration,
-			RadiantWin:  derefBool(rm.RadiantWin),
+			RadiantWin:  rm.RadiantWin,
 		},
 		MatchBuildings: domain.MatchBuildings{
 			TowerStatusRadiant:    deref16(rm.TowerStatusRadiant),

@@ -3,7 +3,7 @@ package discovery
 import (
 	"context"
 	"log/slog"
-	"math/rand"
+	"math/rand/v2"
 	"time"
 
 	"go.opentelemetry.io/otel"
@@ -11,6 +11,9 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 )
+
+// localRng avoids the global math/rand mutex that serialises all callers.
+var localRng = rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64()))
 
 type Scheduler struct {
 	cycles []Cycle
@@ -85,6 +88,6 @@ func jitter(d time.Duration) time.Duration {
 	if maxJitter <= 0 {
 		return d
 	}
-	offset := time.Duration(rand.Int63n(int64(maxJitter)))
+	offset := time.Duration(localRng.Int64N(int64(maxJitter)))
 	return d + offset
 }

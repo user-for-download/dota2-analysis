@@ -56,7 +56,11 @@ func (h *Handler) Recommend(w http.ResponseWriter, r *http.Request) {
 	// evaluate from Dire's perspective (synergies with Dire picks,
 	// countering Radiant picks, etc.). This matches SimulateDraft.
 	phases := domain.CMPhaseTable()
-	phase, _ := phases.At(req.Slot - 1)
+	phase, ok := phases.At(req.Slot - 1)
+	if !ok {
+		http.Error(w, `{"error":"invalid slot"}`, http.StatusBadRequest)
+		return
+	}
 	userTeam := domain.SideUs
 	if phase.ActingTeam == domain.DraftDire {
 		userTeam = domain.SideThem
@@ -139,7 +143,11 @@ func (h *Handler) SimulateDraft(w http.ResponseWriter, r *http.Request) {
 	var radiantPicks, direPicks, radiantBans, direBans []domain.HeroID
 
 	for slot := 0; slot < phases.Len(); slot++ {
-		phase, _ := phases.At(slot)
+		phase, ok := phases.At(slot)
+		if !ok {
+			h.log.Warn("simulate draft: phase table changed mid-iteration", "slot", slot)
+			continue
+		}
 		userTeam := domain.SideUs
 		if phase.ActingTeam == domain.DraftDire {
 			userTeam = domain.SideThem
@@ -182,20 +190,24 @@ func (h *Handler) SimulateDraft(w http.ResponseWriter, r *http.Request) {
 
 		// Simulate the top recommendation — track picks AND bans so subsequent
 		// slots see an accurate legal-hero pool.
-		if len(result.Recommendations) > 0 {
-			topHero := result.Recommendations[0].Hero
-			if phase.IsBan {
-				if phase.ActingTeam == domain.DraftRadiant {
-					radiantBans = append(radiantBans, topHero)
-				} else {
-					direBans = append(direBans, topHero)
-				}
+		if len(result.Recommendations) == 0 {
+			// No valid recommendations — the draft state is broken (e.g. all
+			// heroes banned or an internal error).  Terminating early prevents
+			// an infinite loop of empty recommendations across remaining slots.
+			break
+		}
+		topHero := result.Recommendations[0].Hero
+		if phase.IsBan {
+			if phase.ActingTeam == domain.DraftRadiant {
+				radiantBans = append(radiantBans, topHero)
 			} else {
-				if phase.ActingTeam == domain.DraftRadiant {
-					radiantPicks = append(radiantPicks, topHero)
-				} else {
-					direPicks = append(direPicks, topHero)
-				}
+				direBans = append(direBans, topHero)
+			}
+		} else {
+			if phase.ActingTeam == domain.DraftRadiant {
+				radiantPicks = append(radiantPicks, topHero)
+			} else {
+				direPicks = append(direPicks, topHero)
 			}
 		}
 	}

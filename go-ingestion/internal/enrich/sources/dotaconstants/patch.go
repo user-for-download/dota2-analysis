@@ -73,6 +73,13 @@ func parsePatchDate(raw json.RawMessage) time.Time {
 		if t, err := time.Parse(time.RFC3339, s); err == nil {
 			return t.UTC()
 		}
+		// OpenDota sometimes uses date-only format (no time component),
+		// e.g. "2023-08-09".  time.RFC3339 strictly requires T00:00:00Z
+		// and will fail on this format, returning Year 0001 and breaking
+		// PatchByTimestamp lookups.
+		if t, err := time.Parse(time.DateOnly, s); err == nil {
+			return t.UTC()
+		}
 		return time.Time{}
 	}
 	// Try bare number (epoch seconds) — the actual format in dotaconstants.

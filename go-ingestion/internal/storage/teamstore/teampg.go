@@ -3,6 +3,7 @@ package teamstore
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -17,9 +18,10 @@ func NewPG(p *pgxpool.Pool) *PG {
 
 var _ Writer = (*PG)(nil)
 
-const upsertSQL = `
+const upsertBulkSQL = `
 INSERT INTO teams (team_id, name, tag, logo_url, rating, wins, losses, last_match_time, delta, match_id)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+SELECT * FROM UNNEST($1::bigint[], $2::text[], $3::text[], $4::text[],
+                      $5::float8[], $6::int[], $7::int[], $8::timestamptz[], $9::float8[], $10::bigint[])
 ON CONFLICT (team_id) DO UPDATE
 SET name            = EXCLUDED.name,
     tag             = EXCLUDED.tag,
@@ -36,24 +38,41 @@ func (r *PG) Upsert(ctx context.Context, teams []Team) (int, error) {
 	if len(teams) == 0 {
 		return 0, nil
 	}
-	tx, err := r.pool.Begin(ctx)
-	if err != nil {
-		return 0, fmt.Errorf("begin: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
 
-	var n int
-	for _, t := range teams {
-		if _, err := tx.Exec(ctx, upsertSQL,
-			t.TeamID, t.Name, t.Tag, t.LogoURL,
-			t.Rating, t.Wins, t.Losses, t.LastMatchTime, t.Delta, t.MatchID,
-		); err != nil {
-			return n, fmt.Errorf("upsert team %d: %w", t.TeamID, err)
+	n := len(teams)
+	teamIDs := make([]int64, n)
+	names := make([]string, n)
+	tags := make([]string, n)
+	logoURLs := make([]string, n)
+	ratings := make([]*float64, n)
+	wins := make([]*int, n)
+	losses := make([]*int, n)
+	lastMatchTimes := make([]*time.Time, n)
+	deltas := make([]*float64, n)
+	matchIDs := make([]*int64, n)
+
+	for i, t := range teams {
+		teamIDs[i] = t.TeamID
+		names[i] = t.Name
+		tags[i] = t.Tag
+		logoURLs[i] = t.LogoURL
+		ratings[i] = t.Rating
+		wins[i] = t.Wins
+		losses[i] = t.Losses
+		if t.LastMatchTime != nil {
+			ts := time.Unix(*t.LastMatchTime, 0).UTC()
+			lastMatchTimes[i] = &ts
 		}
-		n++
+		deltas[i] = t.Delta
+		matchIDs[i] = t.MatchID
 	}
-	if err := tx.Commit(ctx); err != nil {
-		return n, fmt.Errorf("commit: %w", err)
+
+	_, err := r.pool.Exec(ctx, upsertBulkSQL,
+		teamIDs, names, tags, logoURLs,
+		ratings, wins, losses, lastMatchTimes, deltas, matchIDs,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("bulk upsert teams: %w", err)
 	}
 	return n, nil
 }
