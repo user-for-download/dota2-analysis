@@ -84,8 +84,7 @@ func sortByDependencies(sources []RunSource) (sorted []RunSource, skipped []stri
 		if known {
 			for _, dep := range nodes[idx].deps {
 				if _, ok := nameMap[dep]; !ok {
-					skipped = append(skipped, dep)
-					continue
+					return fmt.Errorf("missing required dependency %q for source %q", dep, name)
 				}
 				if err := visit(dep); err != nil {
 					return err

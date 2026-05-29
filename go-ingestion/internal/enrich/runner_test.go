@@ -263,18 +263,15 @@ func TestSortLongerCycleDetected(t *testing.T) {
 	}
 }
 
-func TestSortSkipsUnknownDependency(t *testing.T) {
+func TestSortFailsOnUnknownDependency(t *testing.T) {
 	a := &depSource{name: "a", deps: []string{"does-not-exist"}}
 
-	sorted, skipped, err := sortByDependencies([]RunSource{a})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	_, _, err := sortByDependencies([]RunSource{a})
+	if err == nil {
+		t.Fatal("expected error for unknown dependency, got nil")
 	}
-	if len(sorted) != 1 {
-		t.Errorf("sorted len = %d, want 1", len(sorted))
-	}
-	if len(skipped) != 1 || skipped[0] != "does-not-exist" {
-		t.Errorf("skipped = %v, want [does-not-exist]", skipped)
+	if !strings.Contains(err.Error(), "does-not-exist") {
+		t.Errorf("error %q should mention the missing dependency", err)
 	}
 }
 

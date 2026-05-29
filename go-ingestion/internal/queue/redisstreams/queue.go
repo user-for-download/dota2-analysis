@@ -319,6 +319,9 @@ func (q *Queue) requeue(ctx context.Context, t queue.Task) error {
 		fieldPayload, t.Payload,
 		fieldRetry, strconv.Itoa(t.RetryCount),
 	}
+	for k, v := range t.Headers {
+		args = append(args, "h:"+k, v)
+	}
 	_, err := luaRequeueAtomic.Run(ctx, q.rdb, keys, args...).Int64()
 	if err != nil {
 		return fmt.Errorf("atomic requeue: %w", err)

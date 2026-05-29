@@ -73,13 +73,21 @@ func DerivePhaseTable(isPick []bool) PhaseTable {
 	}
 
 	phases := make([]Phase, n)
-	phases[0] = Phase{
-		Name:       phaseName(0, !isPick[0]),
-		IsBan:      !isPick[0],
-		ActingTeam: actingTeam(0, !isPick[0]),
+
+	// If the draft starts with a pick (the initial ban phases were declined),
+	// offset phase 0's current index to 1 so that phase naming stays
+	// mathematically aligned: the first pick becomes "pick_1" and the
+	// subsequent ban phase becomes "ban_1" instead of both being "ban_1".
+	current := 0
+	if isPick[0] {
+		current = 1
 	}
 
-	current := 0
+	phases[0] = Phase{
+		Name:       phaseName(current, !isPick[0]),
+		IsBan:      !isPick[0],
+		ActingTeam: actingTeam(current, !isPick[0]),
+	}
 	for i := 1; i < n; i++ {
 		if isPick[i] != isPick[i-1] {
 			current++

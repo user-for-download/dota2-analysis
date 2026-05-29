@@ -208,9 +208,12 @@ func (d *Doer) doWithLease(ctx context.Context, req *http.Request, attempt int) 
 
 	resp, err := client.Do(req)
 	if err == nil {
+		// Close the original body as soon as we're done reading it, even if
+		// ReadAll fails — otherwise a slow-read timeout leaks the TCP connection.
+		defer resp.Body.Close()
+
 		if resp.StatusCode >= 400 {
 			d.log.Debug("httpdo: proxy returned HTTP error", "proxy", proxyURL, "status", resp.StatusCode, "target", req.URL.String())
-			resp.Body.Close()
 			if resp.StatusCode == http.StatusTooManyRequests {
 				err = fmt.Errorf("%w: HTTP %d", proxy.ErrRateLimited, resp.StatusCode)
 				lease.MarkFailure(context.WithoutCancel(ctx), err)
