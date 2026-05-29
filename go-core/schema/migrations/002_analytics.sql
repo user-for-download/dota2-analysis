@@ -4,6 +4,11 @@
 -- Read-side only. All derived data lives in analytics.*.
 -- Never writes to public.*.
 --
+-- Match Filtering:
+--   All materialized views filter to professional competitive matches:
+--   - leagueid > 0          (matches with an associated league)
+--   - lobby_type IN (1, 2)  (practice or tournament lobbies only)
+--
 -- Objects:
 --   Schema:        analytics
 --   Materialized Views:
@@ -60,6 +65,7 @@ JOIN public.picks_bans pb
     AND pb.team     = CASE WHEN tm.is_radiant THEN 0 ELSE 1 END
 JOIN public.heroes h ON h.id = pb.hero_id
 WHERE m.leagueid          > 0
+  AND m.lobby_type       IN (1, 2)
   AND m.radiant_team_id   IS NOT NULL
   AND m.dire_team_id      IS NOT NULL
   AND m.start_time        >= EXTRACT(EPOCH FROM (NOW() - INTERVAL '6 months'))::BIGINT
@@ -89,6 +95,7 @@ WITH team_picks AS (
     JOIN public.matches m ON m.match_id = pb.match_id
     WHERE pb.is_pick        = true
       AND m.leagueid        > 0
+      AND m.lobby_type     IN (1, 2)
       AND m.radiant_team_id IS NOT NULL
       AND m.dire_team_id    IS NOT NULL
       AND m.radiant_win     IS NOT NULL
@@ -137,6 +144,7 @@ WITH match_heroes AS (
     JOIN public.matches m ON m.match_id = pb.match_id
     WHERE pb.is_pick        = true
       AND m.leagueid        > 0
+      AND m.lobby_type     IN (1, 2)
       AND m.radiant_team_id IS NOT NULL
       AND m.dire_team_id    IS NOT NULL
       AND m.radiant_win     IS NOT NULL
@@ -189,6 +197,7 @@ JOIN public.matches m
     ON  m.match_id   = pm.match_id
     AND m.start_time = pm.start_time
 WHERE m.leagueid          > 0
+  AND m.lobby_type       IN (1, 2)
   AND m.radiant_team_id   IS NOT NULL
   AND m.dire_team_id      IS NOT NULL
   AND m.start_time        >= EXTRACT(EPOCH FROM (NOW() - INTERVAL '6 months'))::BIGINT
@@ -204,6 +213,10 @@ CREATE UNIQUE INDEX uq_mv_player_team_history
 --    Player-level hero comfort: win rate per (player, hero) with
 --    shrunk WR (prior=5 — higher prior for noisier player data).
 -- =====================================================================
+-- Player-level hero comfort: includes ranked games (solo/team) in addition
+-- to professional matches. Team-level stats (leagueid, team_id) are not
+-- required — a pro player's comfort on a hero is meaningful regardless of
+-- lobby type. Ranked lobbies: 5=ranked_team_mm, 6=ranked_solo_mm, 7=ranked.
 CREATE MATERIALIZED VIEW analytics.mv_player_hero_profile AS
 SELECT
     pm.account_id,
@@ -218,9 +231,7 @@ JOIN public.matches m
     ON  m.match_id   = pm.match_id
     AND m.start_time = pm.start_time
 JOIN public.heroes h ON h.id = pm.hero_id
-WHERE m.leagueid          > 0
-  AND m.radiant_team_id   IS NOT NULL
-  AND m.dire_team_id      IS NOT NULL
+WHERE m.lobby_type       IN (1, 2, 5, 6, 7)
   AND m.start_time        >= EXTRACT(EPOCH FROM (NOW() - INTERVAL '6 months'))::BIGINT
   AND pm.account_id       IS NOT NULL
   AND pm.win              IS NOT NULL

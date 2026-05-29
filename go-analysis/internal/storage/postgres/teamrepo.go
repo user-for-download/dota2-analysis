@@ -46,6 +46,7 @@ func (r *PGRepository) TeamH2H(ctx context.Context, teamA, teamB domain.TeamID) 
 		JOIN public.matches m ON m.match_id = tm.match_id
 		WHERE tm.team_id = $1
 		  AND m.leagueid > 0
+		  AND m.lobby_type IN (1, 2)
 		  AND EXISTS (
 		      SELECT 1 FROM public.team_matches tm2
 		      WHERE tm2.match_id = m.match_id AND tm2.team_id = $2

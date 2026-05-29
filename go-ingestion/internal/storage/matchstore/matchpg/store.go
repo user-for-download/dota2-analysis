@@ -159,38 +159,3 @@ func (s *Store) IsIngested(ctx context.Context, matchID int64, startTime int64) 
 	return exists, err
 }
 
-// checkDraftSchema validates the draft sequence hash against known schemas
-// for Captain's Mode matches (game_mode=2). This is the canary that catches
-// Valve draft format changes before they silently corrupt ML training data.
-//
-// For non-CM game modes (All Pick, Turbo, etc.) the check is skipped —
-// those modes have different or no draft sequences.
-//
-// Returns an error on mismatch so the caller can rollback the transaction
-// and route the message to the DLQ — preventing corrupted data from reaching
-// Postgres and the training pipeline.
-func (s *Store) checkDraftSchema(ctx context.Context, m domain.Match) error {
-	// Captain's Mode = 2 in the OpenDota API. Only validate CM matches.
-	if m.GameMode != 2 {
-		return nil
-	}
-	if len(m.PicksBans) == 0 {
-		return nil
-	}
-	hash := computeSequenceHash(m.PicksBans)
-	for _, known := range knownDraftSchemaHashes {
-		if hash == known {
-			return nil // known schema — all good
-		}
-	}
-	err := fmt.Errorf("unknown draft schema: %s", hash)
-	s.log.Warn("unknown draft schema detected — Valve may have changed the format",
-		"match_id", int64(m.MatchID),
-		"hash", hash,
-		"num_picks_bans", len(m.PicksBans),
-	)
-	if s.m != nil {
-		s.m.IngestFailure(ctx, metrics.KindDraftSchema, int64(m.MatchID), err)
-	}
-	return err
-}

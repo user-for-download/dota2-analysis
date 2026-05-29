@@ -39,3 +39,11 @@ Migrations are embedded in the migrator binary at build time. Operators run:
 | `analytics` | Analytics reads/MVs | Materialized views, scoring tables |
 
 Tables in `public` are written by the ingestion pipeline. Tables in `analytics` are populated by analytics featurizers and read by the API.
+
+## Analytics Materialized Views
+
+All analytics MVs filter to **professional competitive matches only**:
+- `leagueid > 0` — matches with an associated league
+- `lobby_type IN (1, 2)` — practice (1) or tournament (2) lobbies
+
+These filters ensure the analytics pipeline and ML model are trained exclusively on competitive match data.

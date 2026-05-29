@@ -81,6 +81,14 @@ func main() {
 		ms.SetMetrics(sink)
 	}
 
+	// ── Learn draft schemas from DB ────────────────────────────────
+	// Auto-discovers valid Captain's Mode draft sequence hashes from
+	// recently parsed matches. Falls back to seed hashes if DB is empty.
+	if err := matchpg.LearnDraftSchemas(ctx, db, log); err != nil {
+		log.Warn("draft schema learning failed, falling back to seed hashes", "err", err)
+		// Non-fatal — seed hashes still protect against garbage data
+	}
+
 	// ── Queue (parser consumer) ────────────────────────────────────
 	parseQ, err := redisstreams.New(rdb.Master(), redisstreams.Config{
 		Stream:      queueCfg.ParseStream,

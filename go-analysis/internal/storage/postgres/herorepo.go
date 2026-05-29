@@ -128,6 +128,7 @@ func (r *PGRepository) GlobalHeroStatsBatch(ctx context.Context, heroes []domain
 		JOIN public.matches m ON m.match_id = pb.match_id
 		WHERE pb.is_pick = true
 		  AND m.leagueid > 0
+		  AND m.lobby_type IN (1, 2)
 		  AND m.radiant_win IS NOT NULL
 		  AND pb.hero_id = ANY($1)`+patchFilter+`
 		GROUP BY pb.hero_id

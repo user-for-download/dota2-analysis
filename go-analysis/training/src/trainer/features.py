@@ -1,4 +1,9 @@
-"""Feature engineering on extracted data."""
+"""Feature engineering on extracted data.
+
+All database queries filter to professional competitive matches:
+- leagueid > 0 (matches with an associated league)
+- lobby_type IN (1, 2) (practice or tournament lobbies)
+"""
 import pandas as pd
 import numpy as np
 from sqlalchemy import text
@@ -51,6 +56,7 @@ _FALLBACK_SQL = {
                                   AND pb.team     = CASE WHEN tm.is_radiant THEN 0 ELSE 1 END
         JOIN public.heroes h       ON h.id        = pb.hero_id
         WHERE m.leagueid > 0
+          AND m.lobby_type IN (1, 2)
           AND m.radiant_team_id IS NOT NULL
           AND m.dire_team_id    IS NOT NULL
           AND pb.hero_id        > 0
@@ -65,6 +71,7 @@ _FALLBACK_SQL = {
             JOIN public.matches m ON m.match_id = pb.match_id
             WHERE pb.is_pick    = true
               AND m.leagueid    > 0
+              AND m.lobby_type IN (1, 2)
               AND m.radiant_team_id IS NOT NULL
               AND m.dire_team_id    IS NOT NULL
               AND m.radiant_win     IS NOT NULL
@@ -85,6 +92,7 @@ _FALLBACK_SQL = {
             JOIN public.matches m ON m.match_id = pb.match_id
             WHERE pb.is_pick    = true
               AND m.leagueid    > 0
+              AND m.lobby_type IN (1, 2)
               AND m.radiant_team_id IS NOT NULL
               AND m.dire_team_id    IS NOT NULL
               AND m.radiant_win     IS NOT NULL
@@ -96,14 +104,16 @@ _FALLBACK_SQL = {
         JOIN match_heroes b ON a.match_id = b.match_id AND a.team != b.team AND a.hero_id != b.hero_id
         GROUP BY a.hero_id, b.hero_id
     """),
+    # Player-level hero comfort includes ranked games (solo/team) in addition
+    # to professional matches. Team-level guards (leagueid, team_id) are not
+    # needed — a pro player's comfort on a hero is meaningful regardless of
+    # lobby type. Ranked: 5=ranked_team_mm, 6=ranked_solo_mm, 7=ranked.
     "player_hero": text("""
         SELECT pm.account_id, pm.hero_id,
                ((SUM(pm.win::int) + 5.0) / (COUNT(*) + 10.0))::real AS ph_comfort
         FROM public.player_matches pm
         JOIN public.matches m ON m.match_id = pm.match_id AND m.start_time = pm.start_time
-        WHERE m.leagueid    > 0
-          AND m.radiant_team_id IS NOT NULL
-          AND m.dire_team_id    IS NOT NULL
+        WHERE m.lobby_type IN (1, 2, 5, 6, 7)
           AND pm.account_id IS NOT NULL
           AND pm.win        IS NOT NULL
           AND pm.hero_id    > 0
@@ -133,6 +143,7 @@ def _compute_hero_global_stats(engine) -> pd.DataFrame:
             JOIN public.matches m ON m.match_id = pb.match_id
             WHERE pb.is_pick  = true
               AND m.leagueid  > 0
+              AND m.lobby_type IN (1, 2)
               AND m.radiant_win IS NOT NULL
               AND pb.hero_id   > 0
             GROUP BY pb.hero_id

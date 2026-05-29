@@ -1,4 +1,9 @@
-"""Extract training data from Postgres."""
+"""Extract training data from Postgres.
+
+Training data is filtered to professional competitive matches only:
+- leagueid > 0 (matches with an associated league)
+- lobby_type IN (1, 2) (practice or tournament lobbies)
+"""
 import pandas as pd
 from sqlalchemy import text
 from trainer.config import Settings
@@ -26,6 +31,7 @@ WITH decisions AS (
     JOIN public.picks_bans pb ON pb.match_id = m.match_id
     WHERE m.patch_id = :patch_id
       AND m.leagueid > 0
+      AND m.lobby_type IN (1, 2)
 )
 SELECT * FROM decisions
 ORDER BY match_id, slot;

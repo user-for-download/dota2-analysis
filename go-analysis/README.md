@@ -98,6 +98,8 @@ trainer publish
 
 The training pipeline uses 17 features (8 MV-dependent, 9 per-candidate/draft context) and groups by `(match_id, slot)` to provide true within-decision ranking signal. It handles OOM mitigation (30 negatives per slot, explicit GC) and automatically publishes artifacts to `assets/models/imitation/current/` which are hot-reloaded by the API on SIGHUP.
 
+**Training data criteria**: Only professional matches (`leagueid > 0`) in practice or tournament lobbies (`lobby_type IN (1, 2)`) are used for training. This ensures the model learns from competitive match data only.
+
 ## See Also
 
 - [ARCHITECTURE.md](ARCHITECTURE.md) — detailed deployment runbook and patch transition guide

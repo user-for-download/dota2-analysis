@@ -33,7 +33,10 @@ func NewResilient(next parser.Ingester, cb *resilience.CircuitBreaker, log *slog
 func (r *ResilientIngester) Ingest(ctx context.Context, m domain.Match) error {
 	if r.cb != nil && !r.cb.Allow() {
 		r.log.Warn("circuit breaker open; rejecting ingest", "match_id", m.MatchID)
-		r.cb.RecordFailure()
+		// Do NOT call RecordFailure here — the breaker is already open.
+		// Rejected calls are not new failures; they're consequences of the
+		// existing open state. Recording them re-trips the breaker during
+		// half-open recovery, preventing it from ever closing.
 		return fmt.Errorf("circuit breaker open")
 	}
 

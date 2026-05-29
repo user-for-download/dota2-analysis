@@ -72,6 +72,22 @@
    - Replays historical drafts against the current model
    - Reports baseline metrics (accuracy, pick rate correlation)
 
+### Match Filtering Criteria
+
+All analytics and training data is filtered to **professional matches only**:
+
+| Filter | Value | Description |
+|--------|-------|-------------|
+| `leagueid` | `> 0` | Matches with an associated league (professional/tournament) |
+| `lobby_type` | `IN (1, 2)` | Practice (1) or Tournament (2) lobby types only |
+
+These filters are applied consistently across:
+- All analytics materialized views (`analytics.mv_*`)
+- Training data extraction (`extract.py`)
+- Fallback feature queries (`features.py`)
+
+This ensures the model is trained exclusively on competitive match data, excluding public matchmaking, bot games, and other non-competitive lobby types.
+
 ### Key Design Principles
 
 - **Read-side only**: Analysis service never writes to `public.*`
