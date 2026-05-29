@@ -97,9 +97,14 @@ func (p *Parser) handleMessage(ctx context.Context, msg queue.Message) error {
 	blob, err := p.store.Get(ctx, key)
 	if errors.Is(err, payload.ErrNotFound) {
 		p.m.ParseFailure(ctx, metrics.KindPayload)
-		p.log.Error("payload expired for match; routing to DLQ",
+		// Drop the poison pill.  The payload is gone from Redis — no amount
+		// of retrying or DLQ replaying will bring it back.  The discoverer's
+		// periodic sweep calls UnknownIDs(), detects the missing match, and
+		// automatically publishes a fresh fetch task → new payload → new
+		// parse task, completing the self-healing cycle.
+		p.log.Warn("payload expired/missing; dropping task (discoverer will re-fetch)",
 			"match_id", body.MatchID, "key", key)
-		return fmt.Errorf("payload expired for match %d", body.MatchID)
+		return queue.ErrDrop
 	}
 	if err != nil {
 		p.m.ParseFailure(ctx, metrics.KindPayload)
