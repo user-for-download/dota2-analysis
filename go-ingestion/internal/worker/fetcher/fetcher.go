@@ -108,7 +108,10 @@ func (f *Fetcher) Run(ctx context.Context) error {
 	// When using Subscribe the queue manages Pop/Ack/Retry/backpressure/stale
 	// recovery internally.  Batch/Block config should be set on the queue's
 	// redisstreams.Config.SubscribeBatch/SubscribeBlock at construction time.
-	return f.in.Subscribe(ctx, f.handleMessage)
+	
+	// Apply ErrorTranslator middleware to translate JSON errors to ErrDrop
+	handler := queue.Chain(f.handleMessage, queue.ErrorTranslator())
+	return f.in.Subscribe(ctx, handler)
 }
 
 // handleMessage implements queue.Handler.  It processes a single fetch task,
@@ -119,7 +122,7 @@ func (f *Fetcher) handleMessage(ctx context.Context, msg queue.Message) error {
 	if err := json.Unmarshal(msg.Payload, &body); err != nil {
 		f.m.FetchFailure(ctx, metrics.KindDecode)
 		f.log.Warn("malformed fetch task", "id", msg.ID, "err", err)
-		return queue.ErrDrop // permanent decode error — drop, don't retry
+		return err // Middleware will translate to ErrDrop
 	}
 	f.log.Debug("fetcher: processing task", "match_id", body.MatchID, "msg_id", msg.ID)
 
@@ -129,7 +132,7 @@ func (f *Fetcher) handleMessage(ctx context.Context, msg queue.Message) error {
 		var perr *httpdo.PermanentHTTPError
 		if errors.As(err, &perr) {
 			f.log.Info("fetch failed permanently; dropping", "match_id", body.MatchID, "err", err)
-			return queue.ErrDrop
+			return queue.ErrDrop // Explicit drop for HTTP 404
 		}
 		f.log.Info("fetch failed; retrying", "match_id", body.MatchID, "err", err)
 		return err
@@ -155,7 +158,6 @@ func (f *Fetcher) handleMessage(ctx context.Context, msg queue.Message) error {
 	// Pass the headers forward to preserve OpenTelemetry tracing.
 	if err := f.out.Publish(ctx, queue.Message{Payload: next, Headers: msg.Headers}); err != nil {
 		f.m.FetchFailure(ctx, metrics.KindUnknown)
-		_ = f.store.ExtendTTL(ctx, key, 2*time.Hour)
 		return fmt.Errorf("out-queue: %w", err)
 	}
 

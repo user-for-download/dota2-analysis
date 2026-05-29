@@ -79,7 +79,10 @@ func (p *Parser) Run(ctx context.Context) error {
 	// When using Subscribe the queue manages Pop/Ack/Retry/backpressure/stale
 	// recovery internally.  Batch/Block config should be set on the queue's
 	// redisstreams.Config.SubscribeBatch/SubscribeBlock at construction time.
-	return p.in.Subscribe(ctx, p.handleMessage)
+	
+	// Apply ErrorTranslator middleware to translate JSON errors to ErrDrop
+	handler := queue.Chain(p.handleMessage, queue.ErrorTranslator())
+	return p.in.Subscribe(ctx, handler)
 }
 
 // handleMessage implements queue.Handler.  It processes a single parse task,
@@ -90,7 +93,7 @@ func (p *Parser) handleMessage(ctx context.Context, msg queue.Message) error {
 	if err := json.Unmarshal(msg.Payload, &body); err != nil {
 		p.m.ParseFailure(ctx, metrics.KindDecode)
 		p.log.Warn("malformed parse task", "id", msg.ID, "err", err)
-		return queue.ErrDrop
+		return err // Middleware will translate to ErrDrop
 	}
 
 	key := strconv.FormatInt(body.MatchID, 10)
@@ -104,7 +107,7 @@ func (p *Parser) handleMessage(ctx context.Context, msg queue.Message) error {
 		// parse task, completing the self-healing cycle.
 		p.log.Warn("payload expired/missing; dropping task (discoverer will re-fetch)",
 			"match_id", body.MatchID, "key", key)
-		return queue.ErrDrop
+		return queue.ErrDrop // Explicit drop for missing payload
 	}
 	if err != nil {
 		p.m.ParseFailure(ctx, metrics.KindPayload)
@@ -117,11 +120,11 @@ func (p *Parser) handleMessage(ctx context.Context, msg queue.Message) error {
 		p.m.ParseFailure(ctx, metrics.KindDecode)
 		p.log.Warn("failed to decode match payload",
 			"match_id", body.MatchID, "err", err)
-		return queue.ErrDrop
+		return err // Middleware will translate to ErrDrop
 	}
 	if err := validate(m); err != nil {
 		p.m.ParseFailure(ctx, metrics.KindValidate)
-		return queue.ErrDrop
+		return queue.ErrDrop // Explicit drop for validation failure
 	}
 
 	p.log.Debug("match decoded successfully",

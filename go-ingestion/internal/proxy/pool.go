@@ -2,59 +2,29 @@ package proxy
 
 import (
 	"context"
-	"sync/atomic"
 	"time"
 )
 
-type Lease struct {
-	URL      string
-	release  func(context.Context) error
-	success  func(context.Context) error
-	failure  func(context.Context, error) error
-	released atomic.Bool
+// Lease represents an acquired proxy that must be released when done.
+type Lease interface {
+	// URL returns the proxy URL.
+	URL() string
+	// MarkSuccess records that the proxy successfully handled a request.
+	MarkSuccess(ctx context.Context)
+	// MarkFailure records that the proxy failed to handle a request.
+	MarkFailure(ctx context.Context, err error)
+	// Release returns the proxy to the pool. It must be called exactly once.
+	Release(ctx context.Context) error
 }
 
-func (l *Lease) Release(ctx context.Context) error {
-	if l == nil || l.release == nil {
-		return nil
-	}
-	if !l.released.CompareAndSwap(false, true) {
-		return nil
-	}
-	return l.release(ctx)
-}
-
-func (l *Lease) MarkSuccess(ctx context.Context) {
-	if l == nil || l.success == nil {
-		return
-	}
-	_ = l.success(ctx)
-}
-
-func (l *Lease) MarkFailure(ctx context.Context, err error) {
-	if l == nil || l.failure == nil {
-		return
-	}
-	_ = l.failure(ctx, err)
-}
-
-func NewLease(
-	url string,
-	release func(context.Context) error,
-	success func(context.Context) error,
-	failure func(context.Context, error) error,
-) *Lease {
-	return &Lease{
-		URL:     url,
-		release: release,
-		success: success,
-		failure: failure,
-	}
-}
-
+// Pool provides access to a rotating set of proxies.
 type Pool interface {
-	Acquire(ctx context.Context, hold time.Duration) (*Lease, error)
+	// Acquire blocks until a proxy is available or the context is cancelled.
+	Acquire(ctx context.Context, hold time.Duration) (Lease, error)
+	// Size returns the number of proxies currently in the pool.
 	Size(ctx context.Context) (int, error)
+	// Replace completely replaces the current set of proxies.
 	Replace(ctx context.Context, healthy []string) error
+	// Add adds new proxies to the pool.
 	Add(ctx context.Context, healthy []string) error
 }

@@ -31,7 +31,7 @@ func New(initial []string) *Pool {
 
 var _ proxy.Pool = (*Pool)(nil)
 
-func (p *Pool) Acquire(ctx context.Context, _ time.Duration) (*proxy.Lease, error) {
+func (p *Pool) Acquire(ctx context.Context, _ time.Duration) (proxy.Lease, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -50,12 +50,12 @@ func (p *Pool) Acquire(ctx context.Context, _ time.Duration) (*proxy.Lease, erro
 		}
 		p.leased[url] = struct{}{}
 		p.cursor = (idx + 1) % len(p.proxies)
-		return proxy.NewLease(
-			url,
-			p.releaseFn(url),
-			p.successFn(url),
-			p.failureFn(url),
-		), nil
+		return &lease{
+			url:     url,
+			release: p.releaseFn(url),
+			success: p.successFn(url),
+			failure: p.failureFn(url),
+		}, nil
 	}
 	return nil, proxy.ErrNoProxy
 }

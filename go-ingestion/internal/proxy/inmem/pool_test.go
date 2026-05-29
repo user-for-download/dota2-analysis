@@ -19,7 +19,7 @@ func TestAcquireRoundRobin(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Acquire %d: %v", i, err)
 		}
-		seen[l.URL]++
+		seen[l.URL()]++
 		if err := l.Release(ctx); err != nil {
 			t.Fatalf("Release: %v", err)
 		}

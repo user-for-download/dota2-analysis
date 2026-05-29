@@ -68,7 +68,7 @@ func TestRedisProxyAcquireRelease(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Acquire: %v", err)
 	}
-	if l.URL == "" {
+	if l.URL() == "" {
 		t.Error("empty lease URL")
 	}
 	if err := l.Release(ctx); err != nil {

@@ -74,7 +74,7 @@ func New(rdb *goredis.Client, cfg Config) (*Pool, error) {
 
 var _ proxy.Pool = (*Pool)(nil)
 
-func (p *Pool) Acquire(ctx context.Context, hold time.Duration) (*proxy.Lease, error) {
+func (p *Pool) Acquire(ctx context.Context, hold time.Duration) (proxy.Lease, error) {
 	if hold <= 0 {
 		hold = 30 * time.Second
 	}
@@ -130,12 +130,12 @@ func (p *Pool) Acquire(ctx context.Context, hold time.Duration) (*proxy.Lease, e
 	}
 	p.log.Debug("redisproxy: lease acquired", "proxy", url, "token", token)
 
-	return proxy.NewLease(
-		url,
-		p.releaseLease(token),
-		p.recordSuccess(url),
-		p.recordFailure(url),
-	), nil
+	return &lease{
+		url:     url,
+		release: p.releaseLease(token),
+		success: p.recordSuccess(url),
+		failure: p.recordFailure(url),
+	}, nil
 }
 
 func (p *Pool) Size(ctx context.Context) (int, error) {

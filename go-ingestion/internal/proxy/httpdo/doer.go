@@ -196,9 +196,9 @@ func (d *Doer) doWithLease(ctx context.Context, req *http.Request, attempt int) 
 		return nil, fmt.Errorf("acquire proxy: %w", err)
 	}
 	defer lease.Release(context.WithoutCancel(ctx))
-	d.log.Debug("httpdo: acquired proxy lease", "proxy", lease.URL, "attempt", attempt, "target", req.URL.String())
+	d.log.Debug("httpdo: acquired proxy lease", "proxy", lease.URL(), "attempt", attempt, "target", req.URL.String())
 
-	proxyURL := lease.URL
+	proxyURL := lease.URL()
 	client, err := d.getClient(proxyURL)
 	if err != nil {
 		lease.MarkFailure(context.WithoutCancel(ctx), err)
