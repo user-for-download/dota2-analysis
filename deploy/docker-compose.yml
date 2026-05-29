@@ -182,7 +182,7 @@ services:
             FETCHER_BATCH: ${FETCHER_BATCH:-10}
             FETCHER_BLOCK: ${FETCHER_BLOCK:-2s}
             FETCHER_HTTP_TIMEOUT: ${FETCHER_HTTP_TIMEOUT:-15s}
-            FETCHER_PAYLOAD_TTL: ${FETCHER_PAYLOAD_TTL:-1h}
+            FETCHER_PAYLOAD_TTL: ${FETCHER_PAYLOAD_TTL:-72h}
             FETCHER_WAIT_TIMEOUT: ${FETCHER_WAIT_TIMEOUT:-5m}
             POSTGRES_DSN: postgresql://${POSTGRES_USER:-dota2}:${POSTGRES_PASSWORD:-dota2}@postgres:5432/${POSTGRES_DB:-dota2}
         depends_on:

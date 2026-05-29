@@ -97,8 +97,9 @@ func (p *Parser) handleMessage(ctx context.Context, msg queue.Message) error {
 	blob, err := p.store.Get(ctx, key)
 	if errors.Is(err, payload.ErrNotFound) {
 		p.m.ParseFailure(ctx, metrics.KindPayload)
-		p.log.Warn("payload expired; dropping task", "match_id", body.MatchID, "key", key)
-		return queue.ErrDrop
+		p.log.Error("payload expired for match; routing to DLQ",
+			"match_id", body.MatchID, "key", key)
+		return fmt.Errorf("payload expired for match %d", body.MatchID)
 	}
 	if err != nil {
 		p.m.ParseFailure(ctx, metrics.KindPayload)
