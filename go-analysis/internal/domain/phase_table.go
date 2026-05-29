@@ -25,23 +25,23 @@ func (t *phaseTable) Len() int { return len(t.phases) }
 // Updated to match the modern Dota 2 CM draft phase (post-7.33+).
 var cmPhaseTableData = []Phase{
 	{Name: "ban_1", IsBan: true, ActingTeam: DraftRadiant},    // 0: Ban R
-	{Name: "ban_1", IsBan: true, ActingTeam: DraftRadiant},    // 1: Ban R
-	{Name: "ban_2", IsBan: true, ActingTeam: DraftDire},       // 2: Ban D
+	{Name: "ban_1", IsBan: true, ActingTeam: DraftDire},       // 1: Ban D
+	{Name: "ban_2", IsBan: true, ActingTeam: DraftRadiant},    // 2: Ban R
 	{Name: "ban_2", IsBan: true, ActingTeam: DraftDire},       // 3: Ban D
 	{Name: "ban_3", IsBan: true, ActingTeam: DraftRadiant},    // 4: Ban R
 	{Name: "ban_3", IsBan: true, ActingTeam: DraftDire},       // 5: Ban D
-	{Name: "ban_4", IsBan: true, ActingTeam: DraftDire},       // 6: Ban D
-	{Name: "pick_1", IsBan: false, ActingTeam: DraftRadiant},  // 7: Pick R
-	{Name: "pick_1", IsBan: false, ActingTeam: DraftDire},     // 8: Pick D
-	{Name: "ban_5", IsBan: true, ActingTeam: DraftRadiant},    // 9: Ban R
+	{Name: "ban_4", IsBan: true, ActingTeam: DraftRadiant},    // 6: Ban R
+	{Name: "pick_1", IsBan: false, ActingTeam: DraftDire},     // 7: Pick D
+	{Name: "pick_1", IsBan: false, ActingTeam: DraftRadiant},  // 8: Pick R
+	{Name: "ban_5", IsBan: true, ActingTeam: DraftDire},       // 9: Ban D
 	{Name: "ban_5", IsBan: true, ActingTeam: DraftRadiant},    // 10: Ban R
 	{Name: "ban_6", IsBan: true, ActingTeam: DraftDire},       // 11: Ban D
-	{Name: "pick_2", IsBan: false, ActingTeam: DraftDire},     // 12: Pick D
-	{Name: "pick_2", IsBan: false, ActingTeam: DraftRadiant},  // 13: Pick R
+	{Name: "pick_2", IsBan: false, ActingTeam: DraftRadiant},  // 12: Pick R
+	{Name: "pick_2", IsBan: false, ActingTeam: DraftDire},     // 13: Pick D
 	{Name: "pick_3", IsBan: false, ActingTeam: DraftRadiant},  // 14: Pick R
 	{Name: "pick_3", IsBan: false, ActingTeam: DraftDire},     // 15: Pick D
-	{Name: "pick_4", IsBan: false, ActingTeam: DraftDire},     // 16: Pick D
-	{Name: "pick_4", IsBan: false, ActingTeam: DraftRadiant},  // 17: Pick R
+	{Name: "pick_4", IsBan: false, ActingTeam: DraftRadiant},  // 16: Pick R
+	{Name: "pick_4", IsBan: false, ActingTeam: DraftDire},     // 17: Pick D
 	{Name: "ban_7", IsBan: true, ActingTeam: DraftRadiant},    // 18: Ban R
 	{Name: "ban_7", IsBan: true, ActingTeam: DraftDire},       // 19: Ban D
 	{Name: "ban_8", IsBan: true, ActingTeam: DraftRadiant},    // 20: Ban R
@@ -86,7 +86,7 @@ func DerivePhaseTable(isPick []bool) PhaseTable {
 	phases[0] = Phase{
 		Name:       phaseName(current, !isPick[0]),
 		IsBan:      !isPick[0],
-		ActingTeam: actingTeam(current, !isPick[0]),
+		ActingTeam: actingTeam(0),
 	}
 	for i := 1; i < n; i++ {
 		if isPick[i] != isPick[i-1] {
@@ -95,7 +95,7 @@ func DerivePhaseTable(isPick []bool) PhaseTable {
 		phases[i] = Phase{
 			Name:       phaseName(current, !isPick[i]),
 			IsBan:      !isPick[i],
-			ActingTeam: actingTeam(current, !isPick[i]),
+			ActingTeam: actingTeam(i),
 		}
 	}
 
@@ -111,22 +111,12 @@ func phaseName(phase int, isBan bool) string {
 	return fmt.Sprintf("%s_%d", pickBan, phase/2+1)
 }
 
-// actingTeam assigns the acting team based on phase index and type.
-// Pattern: within each pair of phases (ban+pick), ban phases alternate
-// R→D→R..., pick phases alternate D→R→D... (mirroring the Radiant-first
-// convention in the current 7.33+ format).
-func actingTeam(phase int, isBan bool) DraftTeam {
-	if isBan {
-		if phase%2 == 0 {
-			return DraftRadiant
-		}
-		return DraftDire
+// actingTeam assigns the acting team based on the absolute slot index.
+// In Captain's Mode, the acting team strictly alternates between Radiant and Dire
+// for every single pick and ban, starting with Radiant.
+func actingTeam(slot int) DraftTeam {
+	if slot%2 == 0 {
+		return DraftRadiant
 	}
-	// Pick phases: even = Dire, odd = Radiant
-	if phase%2 == 0 {
-		return DraftDire
-	}
-	return DraftRadiant
+	return DraftDire
 }
-
-

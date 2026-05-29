@@ -4,7 +4,7 @@ x-common-env: &common-env
     APP_ENV: ${APP_ENV:-production}
     LOG_LEVEL: ${LOG_LEVEL:-info}
     OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-jaeger:4318}
-    ANALYTICS_PATCH_ID: ${ANALYTICS_PATCH_ID:-72} # single source of truth
+    ANALYTICS_PATCH_ID: ${ANALYTICS_PATCH_ID:-60} # single source of truth
     REDIS_PASSWORD: ${REDIS_PASSWORD:-dota2}
 
 x-restart: &restart

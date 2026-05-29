@@ -144,11 +144,6 @@ func (d *Doer) Do(ctx context.Context, req *http.Request) (*http.Response, error
 
 		if isProxyFault(err) {
 			d.log.Debug("httpdo: proxy-fault detected, switching proxy", "attempt", attempt, "err", err)
-			d.log.Debug("proxy-fault error, switching proxy",
-				"attempt", attempt,
-				"max_retries", d.cfg.MaxRetries,
-				"err", err,
-			)
 			continue
 		}
 
