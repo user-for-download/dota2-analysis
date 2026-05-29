@@ -72,6 +72,22 @@ func (s *Store) checkDraftSchema(ctx context.Context, m domain.Match) error {
 		return fmt.Errorf("invalid draft: %w", err)
 	}
 
+	// Detect and log the draft era for monitoring.
+	era := parser.DetectDraftEra(m.PicksBans)
+	s.log.Debug("draft era detected",
+		"match_id", int64(m.MatchID),
+		"era", era,
+		"hash", hash,
+		"num_picks_bans", len(m.PicksBans),
+	)
+	if era == "unknown" {
+		s.log.Warn("unknown draft era",
+			"match_id", int64(m.MatchID),
+			"hash", hash,
+			"num_picks_bans", len(m.PicksBans),
+		)
+	}
+
 	return nil
 }
 

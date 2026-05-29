@@ -2,7 +2,6 @@ package parser
 
 import (
 	"fmt"
-	"slices"
 
 	"github.com/user-for-download/dota2-analysis/go-core/domain"
 )
@@ -93,6 +92,9 @@ func matchesAnyPatternAllowingDeclinedBans(observed []bool) bool {
 // from pattern by removing some false (ban) entries only.
 // All pick (true) entries must appear in the same relative order and position.
 func isSubsequenceRemovesOnlyBans(observed, pattern []bool) bool {
+	if len(observed) == 0 {
+		return false
+	}
 	oi := 0
 	for pi := range pattern {
 		if oi >= len(observed) {
@@ -173,19 +175,69 @@ func PhaseNames(picksBans []domain.PickBan) []string {
 	return names
 }
 
+// orderedEraPatterns defines the draft era patterns in deterministic order
+// (most recent first). Used by DetectDraftEra to ensure stable matching
+// when multiple patterns match the same draft via subsequence.
+var orderedEraPatterns = []struct {
+	name    string
+	pattern []bool
+}{
+	{"7_33_plus", cmDraftPatterns["7_33_plus"]},
+	{"7_30_to_7_32", cmDraftPatterns["7_30_to_7_32"]},
+	{"pre_7_30", cmDraftPatterns["pre_7_30"]},
+}
+
+// boolSlicesEqual reports whether two bool slices are equal.
+func boolSlicesEqual(a, b []bool) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
 // DetectDraftEra returns the era identifier for a validated draft,
 // or "unknown" if it doesn't match any known pattern.
+//
+// First attempts exact match. Falls back to subsequence matching so
+// that declined bans (removed ban entries) don't prevent correct era
+// identification. When multiple patterns match via subsequence, the
+// pattern with the smallest gap (fewest declined bans) wins, which
+// naturally prefers the most specific match.
 func DetectDraftEra(picksBans []domain.PickBan) string {
 	isPickSeq := make([]bool, len(picksBans))
 	for i, pb := range picksBans {
 		isPickSeq[i] = pb.IsPick
 	}
 
-	for name, pattern := range cmDraftPatterns {
-		if slices.Equal(isPickSeq, pattern) {
-			return name
+	// First try exact match against ordered patterns.
+	for _, p := range orderedEraPatterns {
+		if boolSlicesEqual(isPickSeq, p.pattern) {
+			return p.name
 		}
 	}
+
+	// Fall back to subsequence match — pick the pattern with fewest
+	// declined bans (smallest gap to the observed sequence).
+	var best string
+	bestGap := len(isPickSeq) + 1
+	for _, p := range orderedEraPatterns {
+		if isSubsequenceRemovesOnlyBans(isPickSeq, p.pattern) {
+			gap := len(p.pattern) - len(isPickSeq)
+			if gap < bestGap {
+				best = p.name
+				bestGap = gap
+			}
+		}
+	}
+	if best != "" {
+		return best
+	}
+
 	return "unknown"
 }
 
