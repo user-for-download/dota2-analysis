@@ -15,8 +15,8 @@ type keys struct {
 func (k keys) done(source string) string { return k.prefix + ":bootstrap:done:" + source }
 
 type Config struct {
-	Prefix        string
-	TTL          time.Duration
+	Prefix         string
+	TTL            time.Duration
 	ForceBootstrap bool
 }
 

@@ -1,6 +1,6 @@
 module github.com/user-for-download/dota2-analysis/go-core
 
-go 1.25.0
+go 1.26.2
 
 require (
 	github.com/exaring/otelpgx v0.10.0

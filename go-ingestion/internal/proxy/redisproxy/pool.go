@@ -290,7 +290,6 @@ func (p *Pool) recordSuccess(url string) func(context.Context) error {
 			url, p.cfg.Ranking.SuccessBoost,
 		).Int64()
 		if err != nil && !errors.Is(err, goredis.Nil) {
-			p.log.Debug("redisproxy: failed to record success in redis", "url", url, "err", err)
 			p.log.Warn("record success failed", "url", url, "err", err)
 			return err
 		}
@@ -316,7 +315,6 @@ func (p *Pool) recordFailure(url string) func(context.Context, error) error {
 			url, p.cfg.Ranking.FailurePenalty, p.cfg.MaxFailures, msg, coolSecs, time.Now().Unix(),
 		).Int64()
 		if err != nil && !errors.Is(err, goredis.Nil) {
-			p.log.Debug("redisproxy: failed to record failure in redis", "url", url, "err", err)
 			p.log.Warn("record failure failed", "url", url, "err", err)
 			return err
 		}

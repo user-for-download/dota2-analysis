@@ -19,8 +19,7 @@ COMPOSE := docker compose -p $(PROJECT_NAME) --project-directory . -f $(COMPOSE_
         publish-core \
         test vet new-migration migrate-local \
         db-backup db-restore \
-        prune armageddon \
-        shell-db shell-redis
+        prune armageddon
 
 # ───── Help ─────
 help: ## Show this help

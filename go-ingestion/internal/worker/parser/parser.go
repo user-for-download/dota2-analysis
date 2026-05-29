@@ -109,6 +109,8 @@ func (p *Parser) handleMessage(ctx context.Context, msg queue.Message) error {
 	m, err := decodeMatch(body.MatchID, blob)
 	if err != nil {
 		p.m.ParseFailure(ctx, metrics.KindDecode)
+		p.log.Warn("failed to decode match payload",
+			"match_id", body.MatchID, "err", err)
 		return queue.ErrDrop
 	}
 	if err := validate(m); err != nil {

@@ -56,11 +56,12 @@ func (s *Server) Run(ctx context.Context) error {
 	h = LoggingMiddleware(s.log)(h)
 
 	srv := &http.Server{
-		Addr:         s.apiCfg.BindAddr,
-		Handler:      h,
-		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 30 * time.Second,
-		IdleTimeout:  60 * time.Second,
+		Addr:           s.apiCfg.BindAddr,
+		Handler:        h,
+		ReadTimeout:    10 * time.Second,
+		WriteTimeout:   30 * time.Second,
+		IdleTimeout:    60 * time.Second,
+		MaxHeaderBytes: 1 << 20, // 1 MB
 	}
 
 	errCh := make(chan error, 1)

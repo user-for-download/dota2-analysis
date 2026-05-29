@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/storage/refdatastore"
-	_ "github.com/user-for-download/dota2-analysis/go-ingestion/internal/storage/refdatastore"
 )
 
 func (s *Store) UpsertItems(ctx context.Context, items []refdatastore.ItemRef) error {
