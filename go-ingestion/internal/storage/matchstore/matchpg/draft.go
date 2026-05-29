@@ -24,6 +24,14 @@ var knownDraftSchemaHashes = map[string]string{
 	//           D:ban,D:ban,R:ban,R:pick,D:pick,D:pick,R:pick,R:pick,D:pick,
 	//           D:ban,R:ban,D:ban,R:ban,D:pick,R:pick
 	"cm_734": "fe4b4a1ff4075353c546a837130bcdd9d6b25c9d5deeb9a8e9f495b17ce338f2",
+
+	// cm_739_radiant_fp: Captain's Mode format introduced in 7.39 (Radiant First Pick)
+	// Sequence: R:ban,R:ban,D:ban,D:ban,R:ban,D:ban,D:ban,R:pick,D:pick...
+	"cm_739_radiant_fp": "d434316799f4a577576e38f3c16a2e2bb5bf4894e6763b45b86a56ac60c0a14d",
+
+	// cm_739_dire_fp: Captain's Mode format introduced in 7.39 (Dire First Pick)
+	// Sequence: D:ban,D:ban,R:ban,R:ban,D:ban,R:ban,R:ban,D:pick,R:pick...
+	"cm_739_dire_fp": "1784e8a6bd078c8013253bf3e9dc3a01b3950a3103ab52b4f97d9af0d60a2af9",
 }
 
 // draftSchemas holds the live set of accepted hashes — seed + learned.
