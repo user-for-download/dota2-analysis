@@ -1,5 +1,7 @@
 package domain
 
+import "fmt"
+
 // PhaseTable defines the ordered list of draft phases.
 // Implementations are immutable; the same table is shared across all DraftState instances.
 type PhaseTable interface {
@@ -53,5 +55,70 @@ var cmTable PhaseTable = &phaseTable{phases: cmPhaseTableData}
 
 // CMPhaseTable returns the standard Captain's Mode draft phase table.
 func CMPhaseTable() PhaseTable { return cmTable }
+
+// DerivePhaseTable builds a PhaseTable dynamically from the is_pick sequence.
+// Phases are numbered by B/P transitions: each time the sequence switches
+// between picks and bans, the phase increments. This gives stable phase
+// numbers regardless of declined bans.
+//
+// Phase names follow the convention "ban_N" / "pick_N" where N increments
+// every two phases (since a ban phase and a pick phase form a cycle).
+// ActingTeam alternates: ban phases with even index are Radiant, odd are Dire;
+// pick phases with even index are Dire, odd are Radiant (matching the
+// standard Radiant-first pick alternation in the current CM format).
+func DerivePhaseTable(isPick []bool) PhaseTable {
+	n := len(isPick)
+	if n == 0 {
+		return &phaseTable{phases: nil}
+	}
+
+	phases := make([]Phase, n)
+	phases[0] = Phase{
+		Name:       phaseName(0, !isPick[0]),
+		IsBan:      !isPick[0],
+		ActingTeam: actingTeam(0, !isPick[0]),
+	}
+
+	current := 0
+	for i := 1; i < n; i++ {
+		if isPick[i] != isPick[i-1] {
+			current++
+		}
+		phases[i] = Phase{
+			Name:       phaseName(current, !isPick[i]),
+			IsBan:      !isPick[i],
+			ActingTeam: actingTeam(current, !isPick[i]),
+		}
+	}
+
+	return &phaseTable{phases: phases}
+}
+
+// phaseName returns a human-readable name like "ban_1" or "pick_2".
+func phaseName(phase int, isBan bool) string {
+	pickBan := "ban"
+	if !isBan {
+		pickBan = "pick"
+	}
+	return fmt.Sprintf("%s_%d", pickBan, phase/2+1)
+}
+
+// actingTeam assigns the acting team based on phase index and type.
+// Pattern: within each pair of phases (ban+pick), ban phases alternate
+// R→D→R..., pick phases alternate D→R→D... (mirroring the Radiant-first
+// convention in the current 7.33+ format).
+func actingTeam(phase int, isBan bool) DraftTeam {
+	if isBan {
+		if phase%2 == 0 {
+			return DraftRadiant
+		}
+		return DraftDire
+	}
+	// Pick phases: even = Dire, odd = Radiant
+	if phase%2 == 0 {
+		return DraftDire
+	}
+	return DraftRadiant
+}
 
 

@@ -1,3 +1,4 @@
 SELECT ARRAY_AGG(match_id ORDER BY start_time DESC) AS match_ids
 FROM matches
-WHERE start_time >= (EXTRACT(EPOCH FROM NOW() - INTERVAL '180 days'))::BIGINT;
+WHERE start_time >= (EXTRACT(EPOCH FROM NOW() - INTERVAL '180 days'))::BIGINT
+    AND lobby_type IN (1,2,6);
