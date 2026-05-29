@@ -3,6 +3,7 @@ package dotaconstants
 import (
 	"context"
 	"fmt"
+	"sort"
 
 	"github.com/user-for-download/dota2-analysis/go-ingestion/internal/enrich"
 )
@@ -54,6 +55,13 @@ func (s *HeroesSource) Run(ctx context.Context, deps enrich.Deps) error {
 	if s.Writer == nil {
 		return fmt.Errorf("heroes: writer not configured")
 	}
+	// Sort by ID to guarantee deterministic lock acquisition order.
+	// The refs slice is built from map iteration (non-deterministic), and
+	// concurrent enricher instances acquiring row locks in different orders
+	// causes classic DB deadlocks (SQLSTATE 40P01).
+	sort.Slice(refs, func(i, j int) bool {
+		return refs[i].ID < refs[j].ID
+	})
 	return s.Writer.UpsertHeroes(ctx, refs)
 }
 

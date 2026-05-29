@@ -23,11 +23,11 @@ INSERT INTO pro_players (account_id, steamid, personaname, name, country_code,
     fantasy_role, team_id, team_name, team_tag, is_pro, is_locked,
     avatar, last_match_time, last_login, full_history_time,
     cheese, fh_unavailable, loccountrycode, plus, updated_at)
-SELECT * FROM UNNEST(
+SELECT *, now() FROM UNNEST(
     $1::bigint[], $2::text[], $3::text[], $4::text[], $5::text[],
     $6::int[], $7::bigint[], $8::text[], $9::text[], $10::bool[], $11::bool[],
     $12::text[], $13::timestamptz[], $14::timestamptz[], $15::timestamptz[],
-    $16::int[], $17::bool[], $18::text[], $19::bool[], now()
+    $16::int[], $17::bool[], $18::text[], $19::bool[]
 )
 ON CONFLICT (account_id) DO UPDATE SET
     steamid = EXCLUDED.steamid,
