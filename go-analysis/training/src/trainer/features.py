@@ -261,27 +261,16 @@ def _features_synergy(
 
     if syn.empty:
         if hg is not None and not hg.empty:
-            # Fallback: compute average global WR of ally picks per candidate.
-            # ⚠️ Must filter to only allies picked BEFORE this slot — including
-            # future picks leaks draft decisions into training features.
-            actual = df[df["label"] == 1.0][["match_id", "hero_id", "slot"]].drop_duplicates()
-            actual.rename(columns={"hero_id": "ally_hero_id", "slot": "ally_slot"}, inplace=True)
-            cross = df[["match_id", "hero_id", "slot"]].drop_duplicates().merge(
-                actual, on="match_id"
+            # Fallback: use candidate's own global WR as a per-candidate proxy.
+            # Averaging the allies' global WR would be CONSTANT per decision
+            # group (same allies for every candidate at a given slot), which
+            # provides ZERO gradient signal for LambdaMART ranking.
+            # By using each candidate's own global WR, the value varies across
+            # candidates and the model can learn from it.
+            proxy = hg[["hero_id", "global_wr_shrunk"]].rename(
+                columns={"global_wr_shrunk": "mean_syn_with_allies"}
             )
-            cross = cross[cross["ally_slot"] < cross["slot"]]
-            cross.drop(columns=["slot", "ally_slot"], inplace=True)
-            cross = cross[cross["hero_id"] != cross["ally_hero_id"]]
-            cross = cross.merge(
-                hg[["hero_id", "global_wr_shrunk"]].rename(
-                    columns={"hero_id": "ally_hero_id", "global_wr_shrunk": "syn_fb"}
-                ),
-                on="ally_hero_id",
-                how="left",
-            )
-            mean_syn = cross.groupby(["match_id", "hero_id"], as_index=False)["syn_fb"].mean()
-            mean_syn.rename(columns={"syn_fb": "mean_syn_with_allies"}, inplace=True)
-            df = df.merge(mean_syn, on=["match_id", "hero_id"], how="left")
+            df = df.merge(proxy, on="hero_id", how="left")
             df["mean_syn_with_allies"] = df["mean_syn_with_allies"].fillna(0.5)
         else:
             df["mean_syn_with_allies"] = 0.5
@@ -348,33 +337,13 @@ def _features_counter(
 
     if cnt.empty:
         if hg is not None and not hg.empty:
-            # Fallback: compute average global WR of enemy picks per candidate.
-            # ⚠️ Include slot and filter to enemy picks BEFORE this slot only.
-            actual = df[df["label"] == 1.0][
-                ["match_id", "hero_id", "acting_team", "opp_team", "slot"]
-            ].drop_duplicates()
-            enemy_picks = actual.rename(
-                columns={"hero_id": "enemy_hero_id", "acting_team": "enemy_acting", "slot": "enemy_slot"}
-            )[["match_id", "enemy_hero_id", "enemy_acting", "enemy_slot"]]
-            cross = df[["match_id", "hero_id", "opp_team", "slot"]].drop_duplicates()
-            cross = cross.merge(
-                enemy_picks,
-                left_on=["match_id", "opp_team"],
-                right_on=["match_id", "enemy_acting"],
-                how="inner",
+            # Fallback: use candidate's own global WR as a per-candidate proxy.
+            # Same reasoning as synergy fallback — averaging enemy WR yields a
+            # constant per decision group, providing zero ranking signal.
+            proxy = hg[["hero_id", "global_wr_shrunk"]].rename(
+                columns={"global_wr_shrunk": "mean_counter_vs_enemies"}
             )
-            cross = cross[cross["enemy_slot"] < cross["slot"]]  # ← future-pick guard
-            cross.drop(columns=["slot", "enemy_slot"], inplace=True)
-            cross = cross.merge(
-                hg[["hero_id", "global_wr_shrunk"]].rename(
-                    columns={"hero_id": "enemy_hero_id", "global_wr_shrunk": "cnt_fb"}
-                ),
-                on="enemy_hero_id",
-                how="left",
-            )
-            mean_cnt = cross.groupby(["match_id", "hero_id"], as_index=False)["cnt_fb"].mean()
-            mean_cnt.rename(columns={"cnt_fb": "mean_counter_vs_enemies"}, inplace=True)
-            df = df.merge(mean_cnt, on=["match_id", "hero_id"], how="left")
+            df = df.merge(proxy, on="hero_id", how="left")
             df["mean_counter_vs_enemies"] = df["mean_counter_vs_enemies"].fillna(0.5)
         else:
             df["mean_counter_vs_enemies"] = 0.5
@@ -671,27 +640,27 @@ def _features_hero_priors(
     - Heroes with zero picks get shrink-fitted defaults (pick_rate ~2/N, wr=0.5).
     - Missing heroes in the merge get the same defaults via fillna.
     """
-	picks = raw_decisions[raw_decisions["is_pick"] == True]
+    picks = raw_decisions[raw_decisions["is_pick"] == True]
 
-	hero_stats = (
-		picks.groupby("hero_id")
-		.agg(
-			hero_pick_count=("match_id", "count"),
-			hero_win_count=("acting_won", "sum"),
-		)
-		.reset_index()
-	)
+    hero_stats = (
+        picks.groupby("hero_id")
+        .agg(
+            hero_pick_count=("match_id", "count"),
+            hero_win_count=("acting_won", "sum"),
+        )
+        .reset_index()
+    )
 
-	# Shrunk pick rate: beta prior with strength=2.
-	# Denominator = total_picks (sum across all heroes), NOT n_decisions (unique
-	# matches).  n_decisions × 10 ≈ total_picks, but the former gives rates > 1.0
-	# for commonly-picked heroes (e.g. 2000 picks / 2000 matches ≈ 1.0), which
-	# breaks the model's split thresholds.  The Go inference side must use the
-	# same denominator — see HeroPickRateSource in hero_prior_source.go.
-	total_picks = hero_stats["hero_pick_count"].sum()
-	hero_stats["hero_pick_rate"] = (
-		(hero_stats["hero_pick_count"] + 2.0) / (total_picks + 4.0)
-	)
+    # Shrunk pick rate: beta prior with strength=2.
+    # Denominator = total_picks (sum across all heroes), NOT n_decisions (unique
+    # matches).  n_decisions × 10 ≈ total_picks, but the former gives rates > 1.0
+    # for commonly-picked heroes (e.g. 2000 picks / 2000 matches ≈ 1.0), which
+    # breaks the model's split thresholds.  The Go inference side must use the
+    # same denominator — see HeroPickRateSource in hero_prior_source.go.
+    total_picks = hero_stats["hero_pick_count"].sum()
+    hero_stats["hero_pick_rate"] = (
+        (hero_stats["hero_pick_count"] + 2.0) / (total_picks + 4.0)
+    )
 
     # Shrunk win rate: beta prior with strength=10 (moderate regularization).
     hero_stats["hero_wr"] = (

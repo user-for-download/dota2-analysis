@@ -151,6 +151,33 @@ func (r *PGRepository) GlobalHeroStatsBatch(ctx context.Context, heroes []domain
 	return out, rows.Err()
 }
 
+// GlobalTotalPicks returns total picks across ALL heroes for the given patch
+// (or whole corpus when patchID is 0).  This matches the Python training
+// denominator: sum of hero_pick_count across all heroes (features.py line 691).
+func (r *PGRepository) GlobalTotalPicks(ctx context.Context, patchID domain.PatchID) (int, error) {
+	var patchFilter string
+	var args []any
+	if patchID > 0 {
+		patchFilter = " AND m.patch_id = $1"
+		args = []any{int32(patchID)}
+	}
+
+	var total int
+	err := r.db.QueryRow(ctx, `
+		SELECT COUNT(*)::int
+		FROM public.picks_bans pb
+		JOIN public.matches m ON m.match_id = pb.match_id
+		WHERE pb.is_pick = true
+		  AND m.leagueid > 0
+		  AND m.lobby_type IN (1, 2)
+		  AND m.radiant_win IS NOT NULL`+patchFilter+`
+	`, args...).Scan(&total)
+	if err != nil {
+		return 0, fmt.Errorf("global total picks: %w", err)
+	}
+	return total, nil
+}
+
 // CounterAvgBatch returns average counter WR of candidates against enemies.
 func (r *PGRepository) CounterAvgBatch(ctx context.Context, candidates, enemies []domain.HeroID) (map[domain.HeroID]float64, error) {
 	out := make(map[domain.HeroID]float64, len(candidates))

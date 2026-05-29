@@ -104,12 +104,12 @@ func (c *Cycle) RunOnce(ctx context.Context) error {
 		return fmt.Errorf("query %q not found", key)
 	}
 
-	var ids []int64
+	var refs []matchstore.MatchRef
 	var err error
 	const maxBackoff = 30 * time.Second
 	for attempt := 1; ctx.Err() == nil; attempt++ {
 		c.log.Debug("discoverer: fetching match ids", "key", key, "attempt", attempt)
-		ids, err = c.fetchMatchIDs(ctx, sql)
+		refs, err = c.fetchMatchRefs(ctx, sql)
 		if err == nil {
 			break
 		}
@@ -134,23 +134,40 @@ func (c *Cycle) RunOnce(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("fetch match ids (%s): %w", key, err)
 	}
-	c.log.Info("query returned", "key", key, "count", len(ids))
+	c.log.Info("query returned", "key", key, "count", len(refs))
 
 	// Pre-filter with PostgreSQL to respect existing parsed matches even if Redis resets.
-	c.log.Debug("discoverer: filtering against db", "candidates", len(ids))
-	if c.reader != nil && len(ids) > 0 {
-		unknownIDs, err := c.reader.UnknownIDs(ctx, ids)
+	// Passing (match_id, start_time) pairs enables partition pruning on matches
+	// (partitioned by start_time) — without start_time, PG probes every quarterly
+	// partition, causing massive CPU/IO spikes at 10k+ candidates.
+	c.log.Debug("discoverer: filtering against db", "candidates", len(refs))
+	if c.reader != nil && len(refs) > 0 {
+		unknownIDs, err := c.reader.UnknownIDs(ctx, refs)
 		if err != nil {
 			c.log.Warn("failed to check unknown ids against db", "err", err)
 		} else {
-			c.log.Info("filtered discovered matches against db", "original", len(ids), "unknown", len(unknownIDs))
-			ids = unknownIDs
+			c.log.Info("filtered discovered matches against db", "original", len(refs), "unknown", len(unknownIDs))
+			// Rebuild refs from the IDs returned — UnknownIDs return value is
+			// just match_ids (the subset that need processing). We re-use
+			// whichever refs matched those IDs to preserve start_time later.
+			idSet := make(map[int64]struct{}, len(unknownIDs))
+			for _, id := range unknownIDs {
+				idSet[id] = struct{}{}
+			}
+			filtered := make([]matchstore.MatchRef, 0, len(unknownIDs))
+			for _, ref := range refs {
+				if _, ok := idSet[ref.MatchID]; ok {
+					filtered = append(filtered, ref)
+				}
+			}
+			refs = filtered
 		}
 	}
 
 	pushed := 0
 	skipped := 0
-	for _, id := range ids {
+	for _, ref := range refs {
+		id := ref.MatchID
 		c.log.Debug("discoverer: processing match id", "match_id", id)
 		if c.dedup != nil {
 			dedupKey := strconv.FormatInt(id, 10)
@@ -172,11 +189,11 @@ func (c *Cycle) RunOnce(ctx context.Context) error {
 		}
 		pushed++
 	}
-	c.log.Info("pushed tasks", "key", key, "pushed", pushed, "skipped", skipped, "discovered", len(ids))
+	c.log.Info("pushed tasks", "key", key, "pushed", pushed, "skipped", skipped, "discovered", len(refs))
 	return nil
 }
 
-func (c *Cycle) fetchMatchIDs(ctx context.Context, sql string) ([]int64, error) {
+func (c *Cycle) fetchMatchRefs(ctx context.Context, sql string) ([]matchstore.MatchRef, error) {
 	base := c.cfg.ExplorerURL
 	if i := strings.Index(base, "?sql="); i > 0 {
 		base = base[:i]
@@ -201,10 +218,10 @@ func (c *Cycle) fetchMatchIDs(ctx context.Context, sql string) ([]int64, error) 
 	if err != nil {
 		return nil, err
 	}
-	return parseMatchIDs(body)
+	return parseMatchRefs(body)
 }
 
-func parseMatchIDs(body []byte) ([]int64, error) {
+func parseMatchRefs(body []byte) ([]matchstore.MatchRef, error) {
 	var env struct {
 		Rows []map[string]json.RawMessage `json:"rows"`
 	}
@@ -214,19 +231,39 @@ func parseMatchIDs(body []byte) ([]int64, error) {
 	if len(env.Rows) == 0 {
 		return nil, nil
 	}
-	var out []int64
+	var out []matchstore.MatchRef
 	for _, row := range env.Rows {
-		if rm, ok := row["match_id"]; ok {
-			out = append(out, extractID(rm)...)
-		}
-		if rm, ok := row["match_ids"]; ok {
-			var arr []json.RawMessage
-			if err := json.Unmarshal(rm, &arr); err == nil {
-				for _, v := range arr {
-					out = append(out, extractID(v)...)
+		// Each row must have match_id and start_time for partition-pruned
+		// UnknownIDs queries.  The SQL query in assets/queries/matches/
+		// returns both columns.
+		var id int64
+		rm, ok := row["match_id"]
+		if !ok {
+			// Fallback: try match_ids array (legacy format)
+			if rm, ok := row["match_ids"]; ok {
+				var arr []json.RawMessage
+				if err := json.Unmarshal(rm, &arr); err == nil {
+					for _, v := range arr {
+						if ids := extractID(v); len(ids) > 0 {
+							out = append(out, matchstore.MatchRef{MatchID: ids[0]})
+						}
+					}
 				}
 			}
+			continue
 		}
+		ids := extractID(rm)
+		if len(ids) == 0 {
+			continue
+		}
+		id = ids[0]
+
+		// Extract start_time for partition pruning.
+		var startTime int64
+		if st, ok := row["start_time"]; ok {
+			startTime = extractInt64(st)
+		}
+		out = append(out, matchstore.MatchRef{MatchID: id, StartTime: startTime})
 	}
 	return out, nil
 }
@@ -246,4 +283,20 @@ func extractID(r json.RawMessage) []int64 {
 		return []int64{n}
 	}
 	return nil
+}
+
+// extractInt64 parses a numeric value that may be a string or number.
+func extractInt64(r json.RawMessage) int64 {
+	var s string
+	if err := json.Unmarshal(r, &s); err == nil {
+		if n, perr := strconv.ParseInt(s, 10, 64); perr == nil {
+			return n
+		}
+		return 0
+	}
+	var n int64
+	if err := json.Unmarshal(r, &n); err == nil {
+		return n
+	}
+	return 0
 }

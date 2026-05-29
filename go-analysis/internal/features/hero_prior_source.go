@@ -34,22 +34,26 @@ func (s *HeroPickRateSource) Compute(ctx context.Context, st *domain.DraftState,
 	if err != nil {
 		return nil, fmt.Errorf("hero pick rate: %w", err)
 	}
-	// Training computes the denominator as n_decisions (unique match_ids in the
-	// training set).  At inference time we use the total pick count across all
-	// heroes instead — this is approximately n_decisions × 10 (10 picks per
-	// match), but avoids the hardcoded 20000.0 that drifts from the training
-	// distribution and produces values 10× larger than what the model learned.
-	totalPicks := 0.0
-	for _, h := range candidates {
-		totalPicks += float64(stats[h].PickCount)
+
+	// Global denominator MUST match the Python training side (features.py line 691):
+	//   total_picks = hero_stats["hero_pick_count"].sum()
+	// i.e. sum of ALL heroes' pick counts, not just the current candidates.
+	// Using only candidates (~25 heroes) gives a ~80% smaller denominator than
+	// the full corpus (~124 heroes), inflating inference probabilities by ~5x
+	// and breaking the model's learned split thresholds.
+	totalPicks, err := s.repo.GlobalTotalPicks(ctx, st.Patch())
+	if err != nil {
+		return nil, fmt.Errorf("hero pick rate: %w", err)
 	}
-	if totalPicks <= 0 {
-		totalPicks = 1.0 // avoid division by zero on cold start
+	totalPicksF := float64(totalPicks)
+	if totalPicksF <= 0 {
+		totalPicksF = 1.0 // avoid division by zero on cold start
 	}
+
 	result := make(map[domain.HeroID]float64, len(candidates))
 	for _, h := range candidates {
 		gs := stats[h]
-		result[h] = (float64(gs.PickCount) + 2.0) / (totalPicks + 4.0)
+		result[h] = (float64(gs.PickCount) + 2.0) / (totalPicksF + 4.0)
 	}
 	return result, nil
 }

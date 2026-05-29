@@ -49,8 +49,8 @@ func Replay(
 	// every quarterly partition — a full sequential scan of millions of rows.
 	var patchMinTS, patchMaxTS int64
 	if err := db.QueryRow(ctx, `
-		SELECT COALESCE(release_at, 0) AS min_ts,
-		       COALESCE(LEAD(release_at) OVER (ORDER BY release_at) - 1, 2147483647) AS max_ts
+		SELECT COALESCE(EXTRACT(EPOCH FROM release_at)::bigint, 0) AS min_ts,
+		       COALESCE(EXTRACT(EPOCH FROM LEAD(release_at) OVER (ORDER BY release_at))::bigint - 1, 2147483647) AS max_ts
 		FROM patches WHERE id = $1
 	`, cfg.PatchID).Scan(&patchMinTS, &patchMaxTS); err != nil {
 		slog.Default().Warn("patch range query failed; partition pruning disabled", "err", err)

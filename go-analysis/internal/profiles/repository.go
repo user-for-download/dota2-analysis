@@ -98,4 +98,10 @@ type Repository interface {
 	// If patchID is non-zero, stats are filtered to that patch only
 	// (matching the training-side computation from decisions.parquet).
 	GlobalHeroStatsBatch(ctx context.Context, heroes []domain.HeroID, patchID domain.PatchID) (map[domain.HeroID]GlobalHeroStats, error)
+
+	// GlobalTotalPicks returns the sum of ALL hero pick counts for the
+	// specified patch (or whole corpus when patchID is 0).  This is the
+	// denominator used in the Python training-side shrunk pick rate and
+	// must match exactly — see features.py line 691.
+	GlobalTotalPicks(ctx context.Context, patchID domain.PatchID) (int, error)
 }

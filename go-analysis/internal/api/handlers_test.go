@@ -67,6 +67,9 @@ func (m *mockRepository) StarThreatBatch(ctx context.Context, themTeamID domain.
 func (m *mockRepository) GlobalHeroStatsBatch(ctx context.Context, heroes []domain.HeroID, patchID domain.PatchID) (map[domain.HeroID]profiles.GlobalHeroStats, error) {
 	return nil, nil
 }
+func (m *mockRepository) GlobalTotalPicks(ctx context.Context, patchID domain.PatchID) (int, error) {
+	return 10000, nil
+}
 
 type mockRecommender struct {
 	recommendFn func(ctx context.Context, st *domain.DraftState, k int) (*domain.Result, error)

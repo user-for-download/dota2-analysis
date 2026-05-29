@@ -206,6 +206,51 @@ func (q *Queue) Pop(ctx context.Context, batch int, block time.Duration) ([]queu
 	return out, nil
 }
 
+// PopPending reads pending (already-claimed) messages from the consumer's
+// PEL (stream="0") without blocking.  Called from Subscribe after each new-
+// message batch to drain XAUTOCLAIM-assigned stale messages, eliminating
+// the duplicate re-enqueue that caused double-ingestion.
+func (q *Queue) PopPending(ctx context.Context, max int) ([]queue.Task, error) {
+	if q.cfg.Consumer == "" || q.cfg.Group == "" {
+		return nil, fmt.Errorf("redisstreams: Consumer and Group required for PopPending")
+	}
+	if max <= 0 {
+		max = 10
+	}
+	res, err := q.rdb.XReadGroup(ctx, &goredis.XReadGroupArgs{
+		Group:    q.cfg.Group,
+		Consumer: q.cfg.Consumer,
+		Streams:  []string{q.cfg.Stream, "0"},
+		Count:    int64(max),
+		Block:    0, // no block — return immediately
+	}).Result()
+	if errors.Is(err, goredis.Nil) || err == nil && (len(res) == 0 || len(res[0].Messages) == 0) {
+		return nil, queue.ErrEmpty
+	}
+	if err != nil {
+		return nil, fmt.Errorf("xreadgroup pel: %w", err)
+	}
+
+	out := make([]queue.Task, 0, len(res[0].Messages))
+	for _, msg := range res[0].Messages {
+		t, err := decodeMessage(msg)
+		if err != nil {
+			q.log.Warn("decode failed in PEL drain; routing to DLQ", "id", msg.ID, "err", err)
+			if dlqErr := q.routeDLQ(ctx, queue.Task{Message: queue.Message{ID: msg.ID}}, "decode_error: "+err.Error()); dlqErr != nil {
+				q.log.Error("DLQ routing failed during PEL drain; message remains pending",
+					"id", msg.ID, "dlq_err", dlqErr,
+				)
+			}
+			continue
+		}
+		out = append(out, t)
+	}
+	if len(out) == 0 {
+		return nil, queue.ErrEmpty
+	}
+	return out, nil
+}
+
 func (q *Queue) Ack(ctx context.Context, taskID string) error {
 	q.log.Debug("queue: acking message", "task_id", taskID)
 	if err := q.rdb.XAck(ctx, q.cfg.Stream, q.cfg.Group, taskID).Err(); err != nil {
@@ -474,7 +519,10 @@ func (q *Queue) Subscribe(ctx context.Context, handler queue.Handler) error {
 
 	log := q.log.With("component", "redisstreams.subscriber")
 
-	// Start stale recovery if configured
+	// Start stale recovery if configured.
+	// staleRecoveryLoop calls RecoverStale (XAUTOCLAIM) which assigns stale
+	// messages to this consumer's PEL.  They are NOT re-enqueued — instead,
+	// the PopPending call below drains them from stream="0" each cycle.
 	if q.cfg.SubscribeRecover {
 		go q.staleRecoveryLoop(ctx)
 	}
@@ -487,39 +535,52 @@ func (q *Queue) Subscribe(ctx context.Context, handler queue.Handler) error {
 		// Backpressure: reduce batch / increase block when queue is deep
 		batch, block = q.adjustForBackpressure(batch, block, baseBatch, baseBlock, log)
 
+		// 1. Read NEW messages via ">" (standard consumer-group dispatch).
 		tasks, err := q.Pop(ctx, batch, block)
-		if errors.Is(err, queue.ErrEmpty) {
-			continue
-		}
-		if err != nil {
+		if err != nil && !errors.Is(err, queue.ErrEmpty) {
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				return err
 			}
 			log.Warn("queue pop", "err", err)
-			continue
 		}
+		q.processTasks(ctx, tasks, handler, log)
 
-		for _, t := range tasks {
-			// The payload is opaque — the queue never inspects it.
-			// RetryCount is tracked via the native `fieldRetry` stream field,
-			// and OTel headers are managed by the TracedSubscriber middleware.
+		// 2. Drain PENDING (claimed) messages via "0" — these were assigned
+		//    to this consumer by XAUTOCLAIM in staleRecoveryLoop but never
+		//    processed because Subscribe's regular Pop only reads ">".
+		//    Without this drain, claimed messages linger in the PEL forever
+		//    and staleRecoveryLoop's old XAdd re-enqueue created duplicates.
+		pending, pelErr := q.PopPending(ctx, batch)
+		if pelErr != nil && !errors.Is(pelErr, queue.ErrEmpty) {
+			log.Warn("queue pop pending", "err", pelErr)
+		}
+		q.processTasks(ctx, pending, handler, log)
+	}
+}
 
-			var handlerErr error
-			func() {
-				defer func() {
-					if r := recover(); r != nil {
-						handlerErr = fmt.Errorf("handler panic: %v", r)
-					}
-				}()
-				handlerErr = handler(ctx, t.Message)
+// processTasks runs the handler for each task and Ack/Retry/DLQ accordingly.
+// It is safe for empty or nil tasks slices.
+func (q *Queue) processTasks(ctx context.Context, tasks []queue.Task, handler queue.Handler, log *slog.Logger) {
+	for _, t := range tasks {
+		// The payload is opaque — the queue never inspects it.
+		// RetryCount is tracked via the native `fieldRetry` stream field,
+		// and OTel headers are managed by the TracedSubscriber middleware.
+
+		var handlerErr error
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					handlerErr = fmt.Errorf("handler panic: %v", r)
+				}
 			}()
+			handlerErr = handler(ctx, t.Message)
+		}()
 
-			switch {
-			case handlerErr == nil, errors.Is(handlerErr, queue.ErrDrop):
-				_ = q.Ack(ctx, t.ID)
-			default:
-				_ = q.Retry(ctx, t, handlerErr.Error())
-			}
+		switch {
+		case handlerErr == nil, errors.Is(handlerErr, queue.ErrDrop):
+			_ = q.Ack(ctx, t.ID)
+		default:
+			_ = q.Retry(ctx, t, handlerErr.Error())
 		}
 	}
 }
@@ -542,41 +603,27 @@ func (q *Queue) staleRecoveryLoop(ctx context.Context) {
 			if len(tasks) == 0 {
 				continue
 			}
-		requeued := 0
-		dropped := 0
-		for _, t := range tasks {
-			// TODO: XAUTOCLAIM assigns stale messages to the subscriber
-			// consumer, but Subscribe's XREADGROUP uses ">" which skips the
-			// PEL.  The XAdd+XAck below creates a duplicate stream entry so
-			// the subscriber picks it up via ">".  If the original consumer
-			// was merely slow (not dead), it will also finish and confirm the
-			// original, duplicating processing.
+			// XAUTOCLAIM has already assigned these stale messages to this
+			// consumer's PEL.  Do NOT re-enqueue via XAdd — that creates a
+			// duplicate stream entry.  If the original consumer was merely
+			// slow (not dead), it will finish and ACK the original, while
+			// the re-enqueued duplicate gets processed again.
 			//
-			// Proper fix: Subscribe should also read from the PEL (stream="0")
-			// and process claimed messages directly, removing the need for
-			// the re-enqueue XAdd below.
-			values := map[string]any{
-				fieldPayload: t.Payload,
-				fieldRetry:   strconv.Itoa(t.RetryCount),
-			}
-			for k, v := range t.Headers {
-				values["h:"+k] = v
-			}
-			err := q.rdb.XAdd(ctx, &goredis.XAddArgs{
-				Stream: q.cfg.Stream,
-				Values: values,
-			}).Err()
-			if err != nil {
-				log.Warn("stale re-enqueue failed", "id", t.ID, "err", err)
-				dropped++
-				continue
-			}
-			_ = q.Ack(ctx, t.ID)
-			requeued++
-		}
-		log.Info("recovered stale", "count", len(tasks), "requeued", requeued, "dropped", dropped)
+			// Instead, rely on PopPending (called in Subscribe) which reads
+			// from stream="0" (the PEL) and processes claimed messages
+			// directly.  The stale message sits in the consumer's PEL until
+			// the next PopPending call picks it up.
+			log.Info("recovered stale", "count", len(tasks), "ids", taskIDs(tasks))
 		}
 	}
+}
+
+func taskIDs(tasks []queue.Task) []string {
+	ids := make([]string, len(tasks))
+	for i, t := range tasks {
+		ids[i] = t.ID
+	}
+	return ids
 }
 
 const (

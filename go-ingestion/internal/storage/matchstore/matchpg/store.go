@@ -106,15 +106,25 @@ func (s *Store) IngestMatch(ctx context.Context, m domain.Match) error {
 	return nil
 }
 
-func (s *Store) UnknownIDs(ctx context.Context, candidates []int64) ([]int64, error) {
+func (s *Store) UnknownIDs(ctx context.Context, candidates []matchstore.MatchRef) ([]int64, error) {
 	if len(candidates) == 0 {
 		return nil, nil
 	}
+	// Flatten two parallel slices: match_ids[] and start_times[].
+	matchIDs := make([]int64, len(candidates))
+	startTimes := make([]int64, len(candidates))
+	for i, c := range candidates {
+		matchIDs[i] = c.MatchID
+		startTimes[i] = c.StartTime
+	}
+	// Filter by both match_id AND start_time so PostgreSQL can prune to
+	// the relevant quarterly partition(s) instead of scanning all 20+.
 	rows, err := s.db.Query(ctx, `
-		SELECT c.id FROM unnest($1::bigint[]) AS c(id)
-		LEFT JOIN matches m ON m.match_id = c.id
+		SELECT c.match_id
+		FROM unnest($1::bigint[], $2::bigint[]) AS c(match_id, start_time)
+		LEFT JOIN matches m ON m.match_id = c.match_id AND m.start_time = c.start_time
 		WHERE m.match_id IS NULL OR m.is_parsed = FALSE
-	`, candidates)
+	`, matchIDs, startTimes)
 	if err != nil {
 		return nil, err
 	}
