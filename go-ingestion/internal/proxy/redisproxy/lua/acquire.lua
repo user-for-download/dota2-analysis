@@ -20,11 +20,14 @@ if #candidates == 0 then
 	return nil
 end
 
--- Collect only unleased candidates
+-- Collect only unleased candidates from the top N
 local available = {}
 for _, c in ipairs(candidates) do
 	if not redis.call('ZSCORE', leasedKey, c) then
 		table.insert(available, c)
+		if #available == topN then
+			break
+		end
 	end
 end
 

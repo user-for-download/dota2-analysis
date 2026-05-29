@@ -109,6 +109,6 @@ func (s *Store) upsertCosmetics(ctx context.Context, tx pgx.Tx, m domain.Match) 
 	_, err := tx.Exec(ctx, `
 		INSERT INTO match_cosmetics (match_id, cosmetics) VALUES ($1, $2::jsonb)
 		ON CONFLICT (match_id) DO UPDATE SET cosmetics = EXCLUDED.cosmetics
-	`, int64(m.MatchID), []byte(m.Cosmetics))
+	`, int64(m.MatchID), string(m.Cosmetics))
 	return err
 }

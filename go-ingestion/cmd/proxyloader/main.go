@@ -129,31 +129,26 @@ func main() {
 		}
 	}
 
-	// nextTopUpTick adds ±10% jitter to the top-up interval to avoid
-	// thundering-herd if multiple proxyloader instances run in parallel.
+	// nextTopUpTick adds 0–10% positive jitter to the top-up interval to
+	// desynchronize proxyloader instances across pods. Uses a timer (not a
+	// ticker) so the jitter is re-evaluated on every cycle — otherwise a
+	// ticker evaluates the duration once and pods stay locked in phase.
 	nextTopUpTick := func() time.Duration {
 		if topUpInterval <= 0 || topUpInterval < time.Second {
 			return topUpInterval
 		}
-		n := int64(topUpInterval-time.Second) / 5
-		if n <= 0 {
-			return topUpInterval
-		}
-		delta := time.Duration(rand.Int63n(n))
-		result := topUpInterval - topUpInterval/10 + delta
-		if result > topUpInterval {
-			result = topUpInterval
-		}
-		return result
+		jitter := time.Duration(rand.Int63n(int64(topUpInterval / 10)))
+		return topUpInterval + jitter
 	}
 
-	// build tickers; a nil channel blocks forever, so disabled intervals are
-	// represented as a nil *time.Ticker with a nil C channel.
+	// build timers; a nil channel blocks forever, so disabled intervals are
+	// represented as a nil *time.Timer with a nil C channel.
 	var topUpC <-chan time.Time
+	var topUpTimer *time.Timer
 	if topUpInterval > 0 {
-		t := time.NewTicker(nextTopUpTick())
-		defer t.Stop()
-		topUpC = t.C
+		topUpTimer = time.NewTimer(nextTopUpTick())
+		defer topUpTimer.Stop()
+		topUpC = topUpTimer.C
 	}
 
 	var forceC <-chan time.Time
@@ -181,6 +176,7 @@ func main() {
 			}
 
 		case <-topUpC:
+			topUpTimer.Reset(nextTopUpTick())
 			// Conditional reload: only runs when the pool has dropped below the
 			// minimum threshold. Handles sudden eviction bursts between force ticks.
 			size, err := pool.Size(ctx)

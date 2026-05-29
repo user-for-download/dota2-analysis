@@ -42,7 +42,7 @@ func (r *ResilientIngester) Ingest(ctx context.Context, m domain.Match) error {
 
 	err := r.next.Ingest(ctx, m)
 	if err != nil {
-		if !IsAlreadySeen(err) && r.cb != nil {
+		if !IsAlreadySeen(err) && !IsValidation(err) && r.cb != nil {
 			r.cb.RecordFailure()
 		}
 		return err

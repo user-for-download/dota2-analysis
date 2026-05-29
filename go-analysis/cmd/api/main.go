@@ -143,14 +143,17 @@ func main() {
 	// A nil *ReloadableScorer typed to ModelReloader is NOT a nil interface
 	// in Go — the interface holds (type, nil) and w.reloader != nil would
 	// pass, causing a nil-pointer panic on the first SIGHUP at r.ptr.Load().
+	// We must assign the interface variable explicitly to avoid this trap.
+	var reloader scoring.ModelReloader
 	if lgbmScvr != nil {
+		reloader = lgbmScvr
 		watcher := api.NewModelWatcher(lgbmScvr, log)
 		go watcher.Watch(ctx)
 	} else {
 		log.Info("skipping model watcher (no LGBM scorer)")
 	}
 
-	srv := api.NewServer(cfg.API, cfg.Analytics, repo, recommender, catalog, lgbmScvr, log)
+	srv := api.NewServer(cfg.API, cfg.Analytics, repo, recommender, catalog, reloader, log)
 	if err := srv.Run(ctx); err != nil {
 		log.Error("server", "err", err)
 		os.Exit(1)

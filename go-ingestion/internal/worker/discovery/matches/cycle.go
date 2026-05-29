@@ -196,9 +196,7 @@ func (c *Cycle) fetchMatchIDs(ctx context.Context, sql string) ([]int64, error) 
 
 func parseMatchIDs(body []byte) ([]int64, error) {
 	var env struct {
-		Rows []struct {
-			MatchIDs []json.RawMessage `json:"match_ids"`
-		} `json:"rows"`
+		Rows []map[string]json.RawMessage `json:"rows"`
 	}
 	if err := json.Unmarshal(body, &env); err != nil {
 		return nil, fmt.Errorf("decode envelope: %w", err)
@@ -208,21 +206,34 @@ func parseMatchIDs(body []byte) ([]int64, error) {
 	}
 	var out []int64
 	for _, row := range env.Rows {
-		for _, r := range row.MatchIDs {
-			var s string
-			if err := json.Unmarshal(r, &s); err == nil {
-				n, perr := strconv.ParseInt(s, 10, 64)
-				if perr != nil || n <= 0 {
-					continue
+		if rm, ok := row["match_id"]; ok {
+			out = append(out, extractID(rm)...)
+		}
+		if rm, ok := row["match_ids"]; ok {
+			var arr []json.RawMessage
+			if err := json.Unmarshal(rm, &arr); err == nil {
+				for _, v := range arr {
+					out = append(out, extractID(v)...)
 				}
-				out = append(out, n)
-				continue
-			}
-			var n int64
-			if err := json.Unmarshal(r, &n); err == nil && n > 0 {
-				out = append(out, n)
 			}
 		}
 	}
 	return out, nil
+}
+
+// extractID parses a match ID from a raw JSON value that may be a string
+// (e.g. the OpenData explorer returns bigint columns as strings) or a number.
+func extractID(r json.RawMessage) []int64 {
+	var s string
+	if err := json.Unmarshal(r, &s); err == nil {
+		if n, perr := strconv.ParseInt(s, 10, 64); perr == nil && n > 0 {
+			return []int64{n}
+		}
+		return nil
+	}
+	var n int64
+	if err := json.Unmarshal(r, &n); err == nil && n > 0 {
+		return []int64{n}
+	}
+	return nil
 }
