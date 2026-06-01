@@ -1,6 +1,34 @@
 """Candidate generation — must match Go implementation."""
+import warnings
+
 import pandas as pd
 import numpy as np
+
+
+def _available_heroes(
+    all_heroes: set[int],
+    drafted_so_far: set[int],
+    current_hero: int,
+) -> set[int]:
+    """Return the set of heroes still available to be picked/banned.
+
+    Args:
+        all_heroes: Complete hero pool for the patch.
+        drafted_so_far: Heroes already picked/banned before this decision.
+        current_hero: The hero being chosen at this decision point
+                      (not yet in drafted_so_far, so still available).
+
+    Returns:
+        Set of hero IDs that haven't been drafted yet.
+    """
+    available = all_heroes - drafted_so_far
+    if current_hero not in available:
+        warnings.warn(
+            f"Hero {current_hero} picked but not in available pool "
+            f"(drafted={drafted_so_far})",
+            stacklevel=2,
+        )
+    return available
 
 
 def generate_candidates(
@@ -46,7 +74,7 @@ def generate_candidates(
             # When max_negatives >= len(available), all available heroes are used
             # (full-pool evaluation). When smaller, a random subset is sampled
             # (training mode — keeps group sizes manageable for LambdaMART).
-            available = _available_heroes(all_heroes, drafted_so_far, hero)
+            available = _available_heroes(set(all_heroes), drafted_so_far, hero)
             n_neg = min(max_negatives, len(available))
             if n_neg > 0:
                 neg_heroes = rng.choice(available, size=n_neg, replace=False)
