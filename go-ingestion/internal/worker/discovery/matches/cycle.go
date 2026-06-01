@@ -174,6 +174,7 @@ func (c *Cycle) RunOnce(ctx context.Context) error {
 	// ── FILTER 2: Database bulk dedup (authoritative) ──
 	// One SQL query with unnest() + LEFT JOIN.
 	// Only queries IDs that survived the Redis filter.
+	c.log.Info("db filter check", "reader_nil", c.reader == nil, "candidates", len(dbCandidates))
 	var queueCandidates []matchstore.MatchRef
 	if c.reader != nil && len(dbCandidates) > 0 {
 		unknownIDs, err := c.reader.UnknownIDs(ctx, dbCandidates)

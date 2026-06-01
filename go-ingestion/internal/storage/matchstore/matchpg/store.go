@@ -119,10 +119,13 @@ func (s *Store) UnknownIDs(ctx context.Context, candidates []matchstore.MatchRef
 	}
 	// Filter by both match_id AND start_time so PostgreSQL can prune to
 	// the relevant quarterly partition(s) instead of scanning all 20+.
+	// SAFETY: c.start_time = 0 means the start_time is unknown (e.g. from
+	// the legacy ARRAY_AGG query format).  In that case, fall back to a
+	// match_id-only JOIN (full partition scan but correct dedup).
 	rows, err := s.db.Query(ctx, `
 		SELECT c.match_id
 		FROM unnest($1::bigint[], $2::bigint[]) AS c(match_id, start_time)
-		LEFT JOIN matches m ON m.match_id = c.match_id AND m.start_time = c.start_time
+		LEFT JOIN matches m ON m.match_id = c.match_id AND (c.start_time = 0 OR m.start_time = c.start_time)
 		WHERE m.match_id IS NULL OR m.is_parsed = FALSE
 	`, matchIDs, startTimes)
 	if err != nil {
