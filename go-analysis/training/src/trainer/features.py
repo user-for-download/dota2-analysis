@@ -452,7 +452,7 @@ def _load_roster(engine, match_ids: list[int]) -> pd.DataFrame:
                    END AS team_id
             FROM public.player_matches pm
             JOIN public.matches m ON m.match_id = pm.match_id
-            WHERE pm.match_id = ANY(:mids::BIGINT[])
+            WHERE pm.match_id = ANY(CAST(:mids AS BIGINT[]))
               AND pm.account_id IS NOT NULL
         """)
         chunk_df = pd.read_sql(q, engine, params={"mids": chunk})
