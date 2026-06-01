@@ -29,6 +29,7 @@ def generate_candidates(decisions: pd.DataFrame, all_heroes: list[int]) -> pd.Da
     Must match the candidate generation logic in the Go recommender.
     """
     rows: list[dict] = []
+    rng = np.random.default_rng(42)
 
     for match_id, group in decisions.groupby("match_id"):
         group = group.sort_values("slot")
@@ -54,7 +55,7 @@ def generate_candidates(decisions: pd.DataFrame, all_heroes: list[int]) -> pd.Da
             available = _available_heroes(all_heroes, drafted_so_far, hero)
             n_neg = min(_NEGATIVES_PER_SLOT, len(available))
             if n_neg > 0:
-                neg_heroes = np.random.choice(available, size=n_neg, replace=False)
+                neg_heroes = rng.choice(available, size=n_neg, replace=False)
                 for neg_id in neg_heroes:
                     r = row.to_dict()
                     r["hero_id"] = neg_id

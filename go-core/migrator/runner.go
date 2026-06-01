@@ -31,6 +31,7 @@ import (
 	"strings"
 	"time"
 
+	// registers pgx v5 driver with database/sql so sql.Open("pgx", ...) works.
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 

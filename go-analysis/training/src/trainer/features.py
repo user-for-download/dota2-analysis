@@ -452,7 +452,7 @@ def _load_roster(engine, match_ids: list[int]) -> pd.DataFrame:
                    END AS team_id
             FROM public.player_matches pm
             JOIN public.matches m ON m.match_id = pm.match_id
-            WHERE pm.match_id = ANY(:mids)
+            WHERE pm.match_id = ANY(:mids::BIGINT[])
               AND pm.account_id IS NOT NULL
         """)
         chunk_df = pd.read_sql(q, engine, params={"mids": chunk})
@@ -678,7 +678,7 @@ def _features_hero_priors(
         how="left",
     )
     # Fill heroes not present in training data (edge case for candidate gen).
-    result["hero_pick_rate"] = result["hero_pick_rate"].fillna(2.0 / (n_decisions + 4.0))
+    result["hero_pick_rate"] = result["hero_pick_rate"].fillna(2.0 / (total_picks + 4.0))
     result["hero_wr"] = result["hero_wr"].fillna(0.5)
     result["hero_popularity"] = result["hero_popularity"].fillna(0.0)
     return result

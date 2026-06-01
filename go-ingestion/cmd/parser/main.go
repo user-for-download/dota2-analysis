@@ -94,6 +94,7 @@ func main() {
 			MaxBackoff: queueCfg.MaxBackoff,
 		},
 		Logger: log,
+		SubscribeWorkers: parserCfg.Workers,
 	})
 	must(log, "parse queue", err)
 

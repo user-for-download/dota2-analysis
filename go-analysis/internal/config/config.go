@@ -61,7 +61,7 @@ func Load(path string) (*Config, error) {
 			ConnMaxIdleTime: getDur("POSTGRES_CONN_MAX_IDLE_TIME", 10*time.Minute),
 		},
 		Analytics: AnalyticsConfig{
-			CurrentPatchID:     int32(getInt("ANALYTICS_PATCH_ID", 0)),
+			CurrentPatchID:     int32(clampInt(getInt("ANALYTICS_PATCH_ID", 0), 0, 1<<31-1)),
 			ModelDir:           getStr("ANALYTICS_MODEL_DIR", "./deploy/models/imitation/current"),
 			ValueModelDir:      getStr("ANALYTICS_VALUE_MODEL_DIR", "./deploy/models/value/current"),
 			ScorerKind:         getStr("ANALYTICS_SCORER_KIND", "linear"),
@@ -96,6 +96,17 @@ func getInt(key string, def int) int {
 		}
 	}
 	return def
+}
+
+// clampInt clamps n to [lo, hi] to prevent silent integer overflow on int32 casts.
+func clampInt(n, lo, hi int) int {
+	if n < lo {
+		return lo
+	}
+	if n > hi {
+		return hi
+	}
+	return n
 }
 
 func getFloat(key string, def float64) float64 {

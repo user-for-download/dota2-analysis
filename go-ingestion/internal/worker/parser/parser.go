@@ -29,6 +29,7 @@ type Config struct {
 	Block                        time.Duration
 	PartitionMaintenanceInterval time.Duration
 	Logger                       *slog.Logger
+	Workers                      int
 }
 
 type Parser struct {

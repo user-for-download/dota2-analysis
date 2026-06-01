@@ -25,11 +25,13 @@ services:
         container_name: dota2-redis
         <<: [*restart, *logging]
         profiles: [infra, ingestion, analytics, all]
-        command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru --requirepass "${REDIS_PASSWORD:-dota2}"
+        command: redis-server --appendonly yes --maxmemory 4gb --maxmemory-policy volatile-lru --requirepass "${REDIS_PASSWORD:-dota2}"
         volumes:
             - redis-data:/data
-        ports:
-            - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+        # ports:
+        #     - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+        expose:
+            - "6379"
         healthcheck:
             test:
                 [
@@ -61,8 +63,10 @@ services:
             POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dota2}
         volumes:
             - pg-data:/var/lib/postgresql/data
-        ports:
-            - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+        # ports:
+        #     - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+        expose:
+            - "5432"
         networks: [infra-net]
 
     jaeger:
@@ -71,8 +75,8 @@ services:
         <<: [*restart, *logging]
         profiles: [infra, ingestion, analytics, all]
         ports:
-            - "127.0.0.1:16686:16686"
-            - "127.0.0.1:4318:4318"
+            - "0.0.0.0:16686:16686"
+            - "0.0.0.0:4318:4318"
         networks: [infra-net]
 
     # ───── Schema ─────
@@ -92,9 +96,9 @@ services:
             POSTGRES_USER: ${POSTGRES_USER:-dota2}
             POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dota2}
             POSTGRES_SSLMODE: ${POSTGRES_SSLMODE:-disable}
-        # depends_on:
-        #     postgres:
-        #         condition: service_healthy
+        depends_on:
+            postgres:
+                condition: service_healthy
         networks: [infra-net]
 
     # ───── Ingestion Pipeline ─────
@@ -188,7 +192,7 @@ services:
         depends_on:
             redis: { condition: service_healthy }
             migrator: { condition: service_completed_successfully }
-        networks: [ingestion-net, infra-net, ocode-net]
+        networks: [ingestion-net, infra-net]
 
     parser:
         image: go-dota2-parser:${TAG:-latest}
@@ -202,6 +206,7 @@ services:
             REDIS_ADDRS: ${REDIS_ADDRS:-redis:6379}
             QUEUE_CONSUMER: parser-${HOSTNAME:-default}
             POSTGRES_DSN: postgresql://${POSTGRES_USER:-dota2}:${POSTGRES_PASSWORD:-dota2}@postgres:5432/${POSTGRES_DB:-dota2}
+            PARSER_WORKERS: ${PARSER_WORKERS:-20}
         depends_on:
             redis: { condition: service_healthy }
             migrator: { condition: service_completed_successfully }
@@ -299,7 +304,3 @@ networks:
     analytics-net:
         driver: bridge
         internal: false # api gateway exposes :8080
-
-    ocode-net:
-        external: true
-        name: ocode_default

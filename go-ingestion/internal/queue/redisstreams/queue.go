@@ -37,6 +37,7 @@ type Config struct {
 	SubscribeBatch   int           // Pop batch size (default 10)
 	SubscribeBlock   time.Duration // Pop block duration (default 2s)
 	SubscribeRecover bool          // run periodic stale-recovery goroutine
+	SubscribeWorkers int           // concurrent task handlers (default 1 = sequential)
 }
 
 const (
@@ -561,27 +562,47 @@ func (q *Queue) Subscribe(ctx context.Context, handler queue.Handler) error {
 // processTasks runs the handler for each task and Ack/Retry/DLQ accordingly.
 // It is safe for empty or nil tasks slices.
 func (q *Queue) processTasks(ctx context.Context, tasks []queue.Task, handler queue.Handler, log *slog.Logger) {
-	for _, t := range tasks {
-		// The payload is opaque — the queue never inspects it.
-		// RetryCount is tracked via the native `fieldRetry` stream field,
-		// and OTel headers are managed by the TracedSubscriber middleware.
-
-		var handlerErr error
-		func() {
-			defer func() {
-				if r := recover(); r != nil {
-					handlerErr = fmt.Errorf("handler panic: %v", r)
-				}
-			}()
-			handlerErr = handler(ctx, t.Message)
-		}()
-
-		switch {
-		case handlerErr == nil, errors.Is(handlerErr, queue.ErrDrop):
-			_ = q.Ack(ctx, t.ID)
-		default:
-			_ = q.Retry(ctx, t, handlerErr.Error())
+	workers := q.cfg.SubscribeWorkers
+	if workers <= 1 {
+		// Sequential fast-path (original behaviour, zero allocation).
+		for _, t := range tasks {
+			q.processOne(ctx, t, handler)
 		}
+		return
+	}
+
+	sem := make(chan struct{}, workers)
+	var wg sync.WaitGroup
+	for _, t := range tasks {
+		t := t
+		wg.Add(1)
+		sem <- struct{}{}
+		go func() {
+			defer wg.Done()
+			defer func() { <-sem }()
+			q.processOne(ctx, t, handler)
+		}()
+	}
+	wg.Wait()
+}
+
+// processOne handles a single task: runs the handler, then Ack/Retry/DLQ.
+func (q *Queue) processOne(ctx context.Context, t queue.Task, handler queue.Handler) {
+	var handlerErr error
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				handlerErr = fmt.Errorf("handler panic: %v", r)
+			}
+		}()
+		handlerErr = handler(ctx, t.Message)
+	}()
+
+	switch {
+	case handlerErr == nil, errors.Is(handlerErr, queue.ErrDrop):
+		_ = q.Ack(ctx, t.ID)
+	default:
+		_ = q.Retry(ctx, t, handlerErr.Error())
 	}
 }
 

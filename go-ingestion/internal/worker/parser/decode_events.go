@@ -2,6 +2,7 @@ package parser
 
 import (
 	"encoding/json"
+	"log/slog"
 	"strconv"
 
 	"github.com/user-for-download/dota2-analysis/go-core/domain"
@@ -15,6 +16,7 @@ func decodeObjectives(raw []json.RawMessage) []domain.Objective {
 	for _, rawMsg := range raw {
 		var o rawObjective
 		if err := json.Unmarshal(rawMsg, &o); err != nil {
+			slog.Warn("decode objective: skipping malformed entry", "err", err, "raw_len", len(rawMsg))
 			continue
 		}
 		keyStr := ""
