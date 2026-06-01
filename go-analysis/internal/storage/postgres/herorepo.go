@@ -74,16 +74,24 @@ func (r *PGRepository) SynergyAvgBatch(ctx context.Context, allies, candidates [
 		return out, nil
 	}
 	// mv_hero_synergy stores only one row per unordered pair (hero_a < hero_b).
-	// Search both (hero_a IN allies, hero_b IN candidates) and
-	// (hero_a IN candidates, hero_b IN allies) to catch all pairs.
+	// Search both directions via UNION ALL instead of a CASE expression:
+	//   - hero_a IN allies, hero_b IN candidates → candidate_id = hero_b
+	//   - hero_b IN allies, hero_a IN candidates → candidate_id = hero_a
+	// This avoids a fragile CASE that assumes allies and candidates are strictly
+	// disjoint — if a hero appears in both, each row correctly identifies the
+	// candidate side without ambiguity.
 	rows, err := r.db.Query(ctx, `
-		SELECT
-			CASE WHEN hero_a = ANY($2) THEN hero_a ELSE hero_b END AS candidate_id,
-			AVG(shrunk_wr)
-		FROM analytics.mv_hero_synergy
-		WHERE (hero_a = ANY($1) AND hero_b = ANY($2))
-		   OR (hero_b = ANY($1) AND hero_a = ANY($2))
-		GROUP BY 1
+		SELECT candidate_id, AVG(shrunk_wr)
+		FROM (
+			SELECT hero_b AS candidate_id, shrunk_wr
+			FROM analytics.mv_hero_synergy
+			WHERE hero_a = ANY($1) AND hero_b = ANY($2)
+			UNION ALL
+			SELECT hero_a AS candidate_id, shrunk_wr
+			FROM analytics.mv_hero_synergy
+			WHERE hero_b = ANY($1) AND hero_a = ANY($2)
+		) pairs
+		GROUP BY candidate_id
 	`, heroIDsToInt16(allies), heroIDsToInt16(candidates))
 	if err != nil {
 		return nil, fmt.Errorf("synergy avg batch: %w", err)

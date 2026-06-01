@@ -274,7 +274,7 @@ services:
         image: go-dota2-analysis-backtester:${TAG:-latest}
         container_name: dota2-analysis-backtester
         <<: *logging
-        profiles: [analytics]
+        profiles: [analytics, all]
         restart: "no"
         env_file:
             - path: deploy/.env

@@ -72,7 +72,7 @@ services:
     backtester:
         image: go-dota2-analysis-backtester:${TAG:-latest}
         container_name: dota2-analysis-backtester
-        profiles: [all]
+        profiles: [analytics, all]
         restart: "no"
         env_file: [.env]
         environment:

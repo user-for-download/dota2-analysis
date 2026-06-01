@@ -6,6 +6,7 @@ import (
 	"flag"
 	"log/slog"
 	"os"
+	"sort"
 	"os/signal"
 	"strconv"
 	"syscall"
@@ -343,10 +344,13 @@ func pickQuery(queries map[string]string, fallback string) string {
 	if sql, ok := queries[fallback]; ok {
 		return sql
 	}
-	for _, v := range queries {
-		return v
+	// Sort keys for deterministic fallback selection.
+	keys := make([]string, 0, len(queries))
+	for k := range queries {
+		keys = append(keys, k)
 	}
-	return ""
+	sort.Strings(keys)
+	return queries[keys[0]]
 }
 
 func derefStr(s *string) string {

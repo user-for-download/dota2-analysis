@@ -211,13 +211,29 @@ func (d *Doer) doWithLease(ctx context.Context, req *http.Request, attempt int) 
 
 		if resp.StatusCode >= 400 {
 			d.log.Debug("httpdo: proxy returned HTTP error", "proxy", proxyURL, "status", resp.StatusCode, "target", req.URL.String())
+
+			// Proxy-specific HTTP errors that warrant marking the proxy as failed.
+			// 407           — proxy authentication required (bad credentials/config)
+			// 502/503/504  — proxy-level failures (bad gateway, overloaded, timeout)
+			switch resp.StatusCode {
+			case http.StatusProxyAuthRequired,
+				http.StatusBadGateway,
+				http.StatusServiceUnavailable,
+				http.StatusGatewayTimeout:
+				lease.MarkFailure(context.WithoutCancel(ctx),
+					fmt.Errorf("proxy-level HTTP %d", resp.StatusCode))
+				return nil, fmt.Errorf("proxy-level HTTP %d", resp.StatusCode)
+			}
+
+			// Target-server errors: the proxy routed the request and the upstream
+			// replied.  The proxy did its job correctly — do NOT penalise it.
 			if resp.StatusCode == http.StatusTooManyRequests {
-				err = fmt.Errorf("%w: HTTP %d", proxy.ErrRateLimited, resp.StatusCode)
+				err := fmt.Errorf("%w: HTTP %d", proxy.ErrRateLimited, resp.StatusCode)
 				lease.MarkFailure(context.WithoutCancel(ctx), err)
 				return nil, err
 			}
 			perr := &permanentHTTPError{StatusCode: resp.StatusCode}
-			lease.MarkFailure(context.WithoutCancel(ctx), perr)
+			lease.MarkSuccess(context.WithoutCancel(ctx))
 			return nil, perr
 		}
 
