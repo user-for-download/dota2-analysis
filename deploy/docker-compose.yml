@@ -25,7 +25,18 @@ services:
         container_name: dota2-redis
         <<: [*restart, *logging]
         profiles: [infra, ingestion, analytics, all]
-        command: redis-server --appendonly yes --maxmemory 4gb --maxmemory-policy volatile-lru --requirepass "${REDIS_PASSWORD:-dota2}"
+        # AOF enabled for durability.  RDB snapshots disabled (--save "")
+        # because they trigger fork() calls that fail under Docker's default
+        # vm.overcommit_memory=0 (Redis needs 4 GB+ of virtual address space
+        # allocated for the fork, even though copy-on-write rarely uses it).
+        # Fix the host permanently: sudo sysctl vm.overcommit_memory=1
+        command: >
+            redis-server
+            --appendonly yes
+            --save ""
+            --maxmemory 4gb
+            --maxmemory-policy volatile-lru
+            --requirepass "${REDIS_PASSWORD:-dota2}"
         volumes:
             - redis-data:/data
         # ports:
