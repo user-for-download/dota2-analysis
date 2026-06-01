@@ -35,8 +35,11 @@ func Postgres(ctx context.Context, cfg config.PostgresConfig, log *slog.Logger) 
 
 	// Reset temp objects on return to pool — lighter than DISCARD ALL.
 	pcfg.AfterRelease = func(conn *pgx.Conn) bool {
-		_, _ = conn.Exec(context.Background(), "DISCARD TEMP")
-		return true
+		_, err := conn.Exec(context.Background(), "DISCARD TEMP")
+		if err != nil {
+			slog.Warn("bootstrap: DISCARD TEMP failed on connection release", "err", err)
+		}
+		return err == nil
 	}
 
 	if cfg.MaxOpenConns > 0 {

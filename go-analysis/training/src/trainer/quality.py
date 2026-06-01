@@ -22,7 +22,9 @@ def run(settings: Settings):
     for k, v in checks.items():
         print(f"  {k}: {v}")
 
-    # Assert minimum data quality
-    assert len(decisions) > 100, f"Too few decisions: {len(decisions)}"
-    assert decisions["match_id"].nunique() > 10, f"Too few matches: {decisions['match_id'].nunique()}"
+    # Minimum data quality — explicit raise (not assert, which is disabled under python -O)
+    if len(decisions) <= 100:
+        raise RuntimeError(f"Too few decisions: {len(decisions)}")
+    if decisions["match_id"].nunique() <= 10:
+        raise RuntimeError(f"Too few matches: {decisions['match_id'].nunique()}")
     print("Quality checks passed.")

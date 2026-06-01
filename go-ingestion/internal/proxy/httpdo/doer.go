@@ -147,8 +147,7 @@ func (d *Doer) Do(ctx context.Context, req *http.Request) (*http.Response, error
 			continue
 		}
 
-		d.log.Debug("httpdo: request failed, retrying", "attempt", attempt, "err", err)
-		d.log.Debug("request failed, retrying with new proxy",
+		d.log.Debug("httpdo: request failed, retrying",
 			"attempt", attempt,
 			"max_retries", d.cfg.MaxRetries,
 			"err", err,
@@ -161,8 +160,7 @@ func (d *Doer) Do(ctx context.Context, req *http.Request) (*http.Response, error
 	}
 
 	if d.cfg.AllowDirect {
-		d.log.Warn("httpdo: all proxy attempts failed, falling back to direct", "url", req.URL.String(), "err", lastErr)
-		d.log.Warn("all proxy attempts failed, falling back to direct",
+		d.log.Warn("httpdo: all proxy attempts failed, falling back to direct",
 			"url", req.URL.String(),
 			"err", lastErr,
 		)
@@ -277,13 +275,25 @@ func (d *Doer) doDirect(ctx context.Context, req *http.Request) (*http.Response,
 	d.log.Debug("httpdo: attempting direct connection", "target", req.URL.String())
 	resp, err := directEntry.client.Do(req)
 	if err == nil {
+		defer resp.Body.Close()
+
 		if resp.StatusCode >= 400 {
-			resp.Body.Close()
 			if resp.StatusCode == http.StatusTooManyRequests {
 				return nil, fmt.Errorf("%w: HTTP %d", proxy.ErrRateLimited, resp.StatusCode)
 			}
 			return nil, &permanentHTTPError{StatusCode: resp.StatusCode}
 		}
+
+		// Read the body with a size limit to prevent OOM from a malicious or
+		// broken upstream — same pattern as doWithLease.
+		bodyBytes, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBodyBytes+1))
+		if err != nil {
+			return nil, fmt.Errorf("read direct response body: %w", err)
+		}
+		if len(bodyBytes) > maxResponseBodyBytes {
+			return nil, fmt.Errorf("direct response body too large: %d bytes", len(bodyBytes))
+		}
+		resp.Body = io.NopCloser(bytes.NewReader(bodyBytes))
 	}
 	d.log.Debug("httpdo: direct connection result", "target", req.URL.String(), "err", err)
 	return resp, err

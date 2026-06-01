@@ -140,7 +140,7 @@ def run(settings: Settings):
     meta = {
         "version": f"imitation-v{settings.patch_id}-{dir_ts}",
         "trained_at": iso_ts,
-        "recall_at_5": 0.0,  # placeholder — evaluate separately
+        "recall_at_5": -1.0,  # placeholder — evaluate separately; -1.0 = not yet computed
         "ndcg_at_10": 0.0,
         "best_iter": booster.best_iteration,
         "patch_id": settings.patch_id,

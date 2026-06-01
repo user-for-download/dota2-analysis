@@ -43,8 +43,8 @@ def run(settings: Settings):
 
     # Split by match_id (rows within a match are correlated).
     match_ids = candidates["match_id"].unique()
-    np.random.seed(42)
-    np.random.shuffle(match_ids)
+    rng = np.random.default_rng(42)
+    rng.shuffle(match_ids)
     split_idx = int(len(match_ids) * 0.8)
 
     train_df = candidates[candidates["match_id"].isin(match_ids[:split_idx])]

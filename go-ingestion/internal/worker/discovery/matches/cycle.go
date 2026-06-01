@@ -239,7 +239,9 @@ func parseMatchRefs(body []byte) ([]matchstore.MatchRef, error) {
 		var id int64
 		rm, ok := row["match_id"]
 		if !ok {
-			// Fallback: try match_ids array (legacy format)
+			// Fallback: try match_ids array (legacy format).  No start_time
+			// is available here, so UnknownIDs queries won't benefit from
+			// partition pruning for these refs.
 			if rm, ok := row["match_ids"]; ok {
 				var arr []json.RawMessage
 				if err := json.Unmarshal(rm, &arr); err == nil {

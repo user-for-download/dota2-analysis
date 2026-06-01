@@ -139,13 +139,20 @@ func (s *Seen) CheckBatch(ctx context.Context, keys []string) ([]bool, error) {
 	if s.cfg.TTL <= 0 {
 		return s.smismember(ctx, keys)
 	}
-	out := make([]bool, len(keys))
+	// Pipeline N Exists calls into a single round-trip instead of N
+	// individual serial round-trips.
+	pipe := s.rdb.Pipeline()
+	cmds := make([]*goredis.IntCmd, len(keys))
 	for i, k := range keys {
-		exists, err := s.rdb.Exists(ctx, s.keys.seenKey(k)).Result()
-		if err != nil {
-			return nil, fmt.Errorf("exists: %w", err)
-		}
-		out[i] = exists > 0
+		cmds[i] = pipe.Exists(ctx, s.keys.seenKey(k))
+	}
+	_, err := pipe.Exec(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("pipeline exists: %w", err)
+	}
+	out := make([]bool, len(keys))
+	for i, cmd := range cmds {
+		out[i] = cmd.Val() > 0
 	}
 	return out, nil
 }
