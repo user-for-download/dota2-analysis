@@ -2,21 +2,12 @@
 import pandas as pd
 import numpy as np
 
-# Number of negative (unpicked) candidates per decision slot.
-# Higher = harder ranking task = better learning signal.
-# With ~127 total heroes and ~10 already drafted per match,
-# late-slot decisions will have fewer available heroes — min() handles this.
-_NEGATIVES_PER_SLOT = 30
 
-
-def _available_heroes(
-    all_heroes: list[int], drafted_so_far: set[int], exclude: int
-) -> list[int]:
-    """Return all heroes that haven't been drafted yet, minus *exclude*."""
-    return [h for h in all_heroes if h not in drafted_so_far and h != exclude]
-
-
-def generate_candidates(decisions: pd.DataFrame, all_heroes: list[int]) -> pd.DataFrame:
+def generate_candidates(
+    decisions: pd.DataFrame,
+    all_heroes: list[int],
+    max_negatives: int = 30,
+) -> pd.DataFrame:
     """Generate candidate heroes per decision slot.
 
     For each pick in a match (processed in slot order), produces one
@@ -52,8 +43,11 @@ def generate_candidates(decisions: pd.DataFrame, all_heroes: list[int]) -> pd.Da
             rows.append(r)
 
             # Negative samples: heroes not yet drafted (or banned) at this point.
+            # When max_negatives >= len(available), all available heroes are used
+            # (full-pool evaluation). When smaller, a random subset is sampled
+            # (training mode — keeps group sizes manageable for LambdaMART).
             available = _available_heroes(all_heroes, drafted_so_far, hero)
-            n_neg = min(_NEGATIVES_PER_SLOT, len(available))
+            n_neg = min(max_negatives, len(available))
             if n_neg > 0:
                 neg_heroes = rng.choice(available, size=n_neg, replace=False)
                 for neg_id in neg_heroes:

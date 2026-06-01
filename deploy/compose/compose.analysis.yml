@@ -95,7 +95,7 @@ services:
         container_name: dota2-analysis-trainer
         profiles: [training]
         restart: "no"
-        mem_limit: 4g
+        mem_limit: 10g
         command: pipeline
         env_file: [.env]
         environment:
