@@ -2,6 +2,7 @@ package matchpg
 
 import (
 	"context"
+	"sort"
 
 	"github.com/jackc/pgx/v5"
 
@@ -46,6 +47,11 @@ func (s *Store) ensureHeroStubs(ctx context.Context, tx pgx.Tx, heroIDs []int16)
 	if len(heroIDs) == 0 {
 		return nil
 	}
+	// Sort by ID to guarantee consistent lock acquisition order across all
+	// concurrent transactors (enricher, other parser workers).  Without this,
+	// player_matches FK checks and ensure_hero_stubs each lock hero rows in
+	// the order they appear — different orders cause deadlock (SQLSTATE 40P01).
+	sort.Slice(heroIDs, func(i, j int) bool { return heroIDs[i] < heroIDs[j] })
 	_, err := tx.Exec(ctx, "SELECT ensure_hero_stubs($1)", heroIDs)
 	return err
 }
