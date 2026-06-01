@@ -16,6 +16,7 @@ Thumbs.db
 /bin/
 /dist/
 vendor/
+backups/
 
 # ─── Python ───
 __pycache__/

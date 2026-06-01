@@ -117,7 +117,7 @@ func (s *Seen) IsSeen(ctx context.Context, key string) (bool, error) {
 	return exists > 0, nil
 }
 
-func (s *Seen) CheckBatch(ctx context.Context, keys []string) ([]bool, error) {
+func (s *Seen) CheckBatch(ctx context.Context, keys []string) (map[string]bool, error) {
 	if s.cfg.UseBloom {
 		args := make([]any, 0, 2+len(keys))
 		args = append(args, "BF.MEXISTS", s.bloomKey)
@@ -128,13 +128,13 @@ func (s *Seen) CheckBatch(ctx context.Context, keys []string) ([]bool, error) {
 		if err != nil {
 			return nil, fmt.Errorf("bf.mexists: %w", err)
 		}
-		out := make([]bool, len(keys))
+		result := make(map[string]bool, len(keys))
 		for i, v := range res {
 			if iv, ok := v.(int64); ok {
-				out[i] = iv > 0
+				result[keys[i]] = iv > 0
 			}
 		}
-		return out, nil
+		return result, nil
 	}
 	if s.cfg.TTL <= 0 {
 		return s.smismember(ctx, keys)
@@ -150,14 +150,14 @@ func (s *Seen) CheckBatch(ctx context.Context, keys []string) ([]bool, error) {
 	if err != nil {
 		return nil, fmt.Errorf("pipeline exists: %w", err)
 	}
-	out := make([]bool, len(keys))
+	result := make(map[string]bool, len(keys))
 	for i, cmd := range cmds {
-		out[i] = cmd.Val() > 0
+		result[keys[i]] = cmd.Val() > 0
 	}
-	return out, nil
+	return result, nil
 }
 
-func (s *Seen) smismember(ctx context.Context, keys []string) ([]bool, error) {
+func (s *Seen) smismember(ctx context.Context, keys []string) (map[string]bool, error) {
 	// Redis 6.2+ supports SMISMEMBER — one O(N) command instead of N commands
 	// over the wire.  Convert []string to []any for the variadic interface{} API.
 	args := make([]any, len(keys))
@@ -176,11 +176,15 @@ func (s *Seen) smismember(ctx context.Context, keys []string) ([]bool, error) {
 		if err2 != nil {
 			return nil, err2
 		}
-		out := make([]bool, len(keys))
+		result := make(map[string]bool, len(keys))
 		for i, cmd := range cmds {
-			out[i] = cmd.Val()
+			result[keys[i]] = cmd.Val()
 		}
-		return out, nil
+		return result, nil
 	}
-	return res, nil
+	result := make(map[string]bool, len(keys))
+	for i, k := range keys {
+		result[k] = res[i]
+	}
+	return result, nil
 }

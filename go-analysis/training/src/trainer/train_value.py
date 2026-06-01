@@ -1,4 +1,18 @@
-"""Train value model using LightGBM binary classification."""
+"""Train outcome-prediction model using LightGBM binary classification.
+
+NOTE: Despite the "value" directory name (kept for Go inference compatibility),
+this model is an OUTCOME PREDICTOR, not a pick-value model:
+
+  - It predicts P(team_win | pick_was_made, draft_context)
+  - It trains only on actual picks (no negative/undrafted candidates)
+  - It CANNOT compare picked vs. unpicked heroes — it answers "given this
+    pick happened, what's the win probability?"
+
+This is useful for post-hoc balance checking but NOT for draft recommendation.
+If you need a true value model (should we pick hero A vs. hero B?), add negative
+candidates to the training set and re-label as:
+    value_label = (label==1.0 & acting_won) ? 1.0 : 0.0
+"""
 import json
 import lightgbm as lgb
 import numpy as np
@@ -10,17 +24,16 @@ from trainer.features import compute_features
 
 
 def run(settings: Settings):
-    """Train the value model.
+    """Train the outcome-prediction model ("value" in output dir).
 
     Binary classification: predicts whether the acting team wins
-    given a draft decision.  Uses the full 24-feature spec (same as
+    given a draft decision.  Uses the full 23-feature spec (same as
     the imitation model) so the Go side can feed feature vectors
     from the same builder to both scorers without a spec mismatch.
 
-    The decisions Parquet has one row per actual pick (no negative
-    candidates).  We copy it, add label=1.0, and run the standard
-    feature computation pipeline.  The value model is a binary
-    classifier, not a ranker — no negative samples are needed.
+    🚫 LIMITATION: No negative candidates.  The model sees only actual
+    picks (label=1.0), which means it learns "did this pick lead to a win?"
+    not "should we pick this hero?"  See module docstring for details.
     """
     decisions = pd.read_parquet(settings.artifact_dir / "decisions.parquet")
 
@@ -30,10 +43,12 @@ def run(settings: Settings):
     candidates = decisions.copy()
     candidates["label"] = 1.0
 
-    # Compute the full 24-feature spec — must match the imitation
+    # Compute the full 23-feature spec — must match the imitation
     # model's feature set so the Go scorer accepts the vectors.
+    # refresh_mvs=False: MVs were already refreshed by train_imitation.
     print("Computing features for value model...")
-    candidates = compute_features(candidates, settings, raw_decisions=decisions)
+    candidates = compute_features(candidates, settings, raw_decisions=decisions,
+                                   refresh_mvs=False)
 
     # Feature columns must match FEATURES in feature_specs.py.
     feature_cols = [f["name"] for f in FEATURES]
@@ -93,10 +108,12 @@ def run(settings: Settings):
     auc = booster.best_score.get("valid_0", {}).get("auc", 0.0)
     meta = {
         "version": f"value-v{settings.patch_id}-{dir_ts}",
+        "model_type": "outcome_predictor",  # see module docstring — NOT a pick-value model
         "trained_at": iso_ts,
         "auc": auc,
         "best_iter": booster.best_iteration,
         "patch_id": settings.patch_id,
+        "n_negative_candidates": 0,  # trained on actual picks only
     }
     with open(out_dir / "meta.json", "w") as f:
         json.dump(meta, f, indent=2)

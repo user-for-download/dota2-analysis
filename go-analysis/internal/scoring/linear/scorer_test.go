@@ -106,8 +106,8 @@ func TestDefaultWeights(t *testing.T) {
 	})
 	s := NewScorer(spec)
 	w := s.Weights()
-	if len(w) != 24 {
-		t.Errorf("got %d weights, want 24 (all features must have non-zero weights)", len(w))
+	if len(w) != 23 {
+		t.Errorf("got %d weights, want 23 (is_pick_phase removed — always 1.0, no ban candidates)", len(w))
 	}
 	// Spot-check known values across categories.
 	if w["team_wr_shrunk"] != 0.30 {

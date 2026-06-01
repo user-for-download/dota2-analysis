@@ -35,12 +35,13 @@ func (s *Seen) IsSeen(_ context.Context, key string) (bool, error) {
 	return ok, nil
 }
 
-func (s *Seen) CheckBatch(_ context.Context, keys []string) ([]bool, error) {
-	out := make([]bool, len(keys))
+func (s *Seen) CheckBatch(_ context.Context, keys []string) (map[string]bool, error) {
+	result := make(map[string]bool, len(keys))
 	s.mu.RLock()
-	for i, k := range keys {
-		_, out[i] = s.seen[k]
+	defer s.mu.RUnlock()
+	for _, k := range keys {
+		_, ok := s.seen[k]
+		result[k] = ok
 	}
-	s.mu.RUnlock()
-	return out, nil
+	return result, nil
 }

@@ -1,6 +1,4 @@
 """Candidate generation — must match Go implementation."""
-import warnings
-
 import pandas as pd
 import numpy as np
 
@@ -9,26 +7,30 @@ def _available_heroes(
     all_heroes: set[int],
     drafted_so_far: set[int],
     current_hero: int,
-) -> set[int]:
-    """Return the set of heroes still available to be picked/banned.
+) -> list[int]:
+    """Return the sorted list of heroes still available to be picked/banned.
+
+    Handles data integrity issues where the current hero may already appear
+    in drafted_so_far due to duplicate draft events — the hero is removed
+    from the drafted set so it remains available for this decision.
+
+    Returns a list (not a set) because numpy.random.choice requires a
+    sequence.
 
     Args:
         all_heroes: Complete hero pool for the patch.
         drafted_so_far: Heroes already picked/banned before this decision.
-        current_hero: The hero being chosen at this decision point
-                      (not yet in drafted_so_far, so still available).
+        current_hero: The hero being chosen at this decision point.
 
     Returns:
-        Set of hero IDs that haven't been drafted yet.
+        Sorted list of hero IDs available for drafting.
     """
-    available = all_heroes - drafted_so_far
-    if current_hero not in available:
-        warnings.warn(
-            f"Hero {current_hero} picked but not in available pool "
-            f"(drafted={drafted_so_far})",
-            stacklevel=2,
-        )
-    return available
+    drafted = set(drafted_so_far)
+    # Data integrity: if the hero being picked is already marked as drafted
+    # (duplicate draft event), remove it so it's available for this decision.
+    drafted.discard(current_hero)
+    available = set(all_heroes) - drafted
+    return sorted(available)
 
 
 def generate_candidates(
@@ -76,12 +78,13 @@ def generate_candidates(
             # (training mode — keeps group sizes manageable for LambdaMART).
             available = _available_heroes(set(all_heroes), drafted_so_far, hero)
             n_neg = min(max_negatives, len(available))
-            if n_neg > 0:
-                neg_heroes = rng.choice(available, size=n_neg, replace=False)
-                for neg_id in neg_heroes:
-                    r = row.to_dict()
-                    r["hero_id"] = neg_id
-                    r["label"] = 0.0
-                    rows.append(r)
+            if n_neg == 0:
+                continue
+            neg_heroes = rng.choice(available, size=n_neg, replace=False)
+            for neg_id in neg_heroes:
+                r = row.to_dict()
+                r["hero_id"] = neg_id
+                r["label"] = 0.0
+                rows.append(r)
 
     return pd.DataFrame(rows)

@@ -136,60 +136,87 @@ func (c *Cycle) RunOnce(ctx context.Context) error {
 	}
 	c.log.Info("query returned", "key", key, "count", len(refs))
 
-	// Pre-filter with PostgreSQL to respect existing parsed matches even if Redis resets.
-	// Passing (match_id, start_time) pairs enables partition pruning on matches
-	// (partitioned by start_time) — without start_time, PG probes every quarterly
-	// partition, causing massive CPU/IO spikes at 10k+ candidates.
-	c.log.Debug("discoverer: filtering against db", "candidates", len(refs))
-	if c.reader != nil && len(refs) > 0 {
-		unknownIDs, err := c.reader.UnknownIDs(ctx, refs)
-		if err != nil {
-			c.log.Warn("failed to check unknown ids against db", "err", err)
-		} else {
-			c.log.Info("filtered discovered matches against db", "original", len(refs), "unknown", len(unknownIDs))
-			// Rebuild refs from the IDs returned — UnknownIDs return value is
-			// just match_ids (the subset that need processing). We re-use
-			// whichever refs matched those IDs to preserve start_time later.
-			idSet := make(map[int64]struct{}, len(unknownIDs))
-			for _, id := range unknownIDs {
-				idSet[id] = struct{}{}
-			}
-			filtered := make([]matchstore.MatchRef, 0, len(unknownIDs))
-			for _, ref := range refs {
-				if _, ok := idSet[ref.MatchID]; ok {
-					filtered = append(filtered, ref)
-				}
-			}
-			refs = filtered
-		}
+	if len(refs) == 0 {
+		return nil
 	}
 
 	pushed := 0
 	skipped := 0
-	for _, ref := range refs {
-		id := ref.MatchID
-		c.log.Debug("discoverer: processing match id", "match_id", id)
-		if c.dedup != nil {
-			dedupKey := strconv.FormatInt(id, 10)
-			seen, err := c.dedup.IsSeen(ctx, dedupKey)
-			if err != nil {
-				c.log.Warn("dedup check failed", "match_id", id, "err", err)
-			} else if seen {
-				skipped++
-				continue
+
+	// ── FILTER 1: Redis bulk dedup (fast path) ──
+	// One pipeline round-trip instead of N individual EXISTS calls.
+	// Catches recently-processed IDs before hitting the DB.
+	var dbCandidates []matchstore.MatchRef
+	if c.dedup != nil {
+		keys := make([]string, len(refs))
+		for i, ref := range refs {
+			keys[i] = strconv.FormatInt(ref.MatchID, 10)
+		}
+
+		seenMap, err := c.dedup.CheckBatch(ctx, keys)
+		if err != nil {
+			c.log.Warn("redis batch dedup failed, falling back to db-only", "err", err)
+			dbCandidates = refs // Fallback: let DB handle dedup
+		} else {
+			for i, ref := range refs {
+				if !seenMap[keys[i]] {
+					dbCandidates = append(dbCandidates, ref)
+				} else {
+					skipped++
+				}
 			}
 		}
-		payload, err := json.Marshal(fetcher.Task{MatchID: id})
+		c.log.Info("redis filter", "passed", len(dbCandidates), "skipped", skipped)
+	} else {
+		dbCandidates = refs
+	}
+
+	// ── FILTER 2: Database bulk dedup (authoritative) ──
+	// One SQL query with unnest() + LEFT JOIN.
+	// Only queries IDs that survived the Redis filter.
+	var queueCandidates []matchstore.MatchRef
+	if c.reader != nil && len(dbCandidates) > 0 {
+		unknownIDs, err := c.reader.UnknownIDs(ctx, dbCandidates)
 		if err != nil {
-			c.log.Warn("marshal task", "match_id", id, "err", err)
+			c.log.Warn("db unknown-ids check failed, falling back to queue all", "err", err)
+			queueCandidates = dbCandidates
+		} else {
+			unknownSet := make(map[int64]struct{}, len(unknownIDs))
+			for _, id := range unknownIDs {
+				unknownSet[id] = struct{}{}
+			}
+			for _, ref := range dbCandidates {
+				if _, ok := unknownSet[ref.MatchID]; ok {
+					queueCandidates = append(queueCandidates, ref)
+				} else {
+					skipped++
+				}
+			}
+		}
+		c.log.Info("db filter", "new_matches", len(queueCandidates), "total_skipped", skipped)
+	} else {
+		queueCandidates = dbCandidates
+	}
+
+	// ── PUBLISH: Only truly new IDs hit the queue ──
+	for _, ref := range queueCandidates {
+		payload, err := json.Marshal(fetcher.Task{MatchID: ref.MatchID})
+		if err != nil {
+			c.log.Warn("marshal task", "match_id", ref.MatchID, "err", err)
 			continue
 		}
 		if err := c.out.Publish(ctx, queue.Message{Payload: payload}); err != nil {
-			return fmt.Errorf("queue publish failed at match_id %d: %w", id, err)
+			return fmt.Errorf("queue publish failed at match_id %d: %w", ref.MatchID, err)
 		}
 		pushed++
 	}
-	c.log.Info("pushed tasks", "key", key, "pushed", pushed, "skipped", skipped, "discovered", len(refs))
+
+	c.log.Info("pushed tasks",
+		"key", key,
+		"pushed", pushed,
+		"skipped", skipped,
+		"discovered", len(refs),
+	)
 	return nil
 }
 

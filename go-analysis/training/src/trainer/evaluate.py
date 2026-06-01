@@ -1,4 +1,16 @@
-"""Evaluate trained models — restricted set + full pool + value model."""
+"""Evaluate trained models — restricted set + full pool + outcome predictor.
+
+CANDIDATE POOL ASYMMETRY (train vs. eval):
+  Training:  ~31 candidates/slot  (1 positive + 30 sampled negatives)
+  Full-pool: ~127 candidates/slot (1 positive + all undrafted heroes)
+
+This gap means restricted-set recall@5 is NOT comparable to full-pool recall@5.
+The full pool is inherently harder (model must rank 1/127 instead of 1/31).
+
+The gate.py applies a 0.5x scaling factor to account for this, but this is
+a rough heuristic — expect a natural gap.  If needed, you can train with
+`max_negatives=len(all_heroes)` to match production, at the cost of speed.
+"""
 import json
 import gc
 import pandas as pd
@@ -118,7 +130,8 @@ def _evaluate_imitation(settings: Settings, feature_cols: list[str]) -> dict:
         raw_decisions, all_heroes, max_negatives=len(all_heroes),
     )
     full_candidates = compute_features(full_candidates, settings,
-                                        raw_decisions=raw_decisions)
+                                        raw_decisions=raw_decisions,
+                                        refresh_mvs=False)
 
     full = _metrics_for_imitation(booster, full_candidates, feature_cols,
                                   label="Full pool (~127 cand/slot)")
@@ -152,8 +165,10 @@ def _evaluate_value(settings: Settings, feature_cols: list[str]) -> None:
     val_candidates["label"] = 1.0
 
     # Compute features (uses same compute_features as training).
+    # refresh_mvs=False: MVs already refreshed during training.
     val_candidates = compute_features(val_candidates, settings,
-                                       raw_decisions=decisions)
+                                       raw_decisions=decisions,
+                                       refresh_mvs=False)
 
     missing = [c for c in feature_cols if c not in val_candidates.columns]
     if missing:

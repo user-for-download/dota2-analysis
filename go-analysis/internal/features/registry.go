@@ -175,10 +175,9 @@ func DefaultSources(repo profiles.Repository, catalog domain.HeroCatalog) []Feat
 		NewAttrIsAgiSource(catalog),
 		NewAttrIsIntSource(catalog),
 		NewAttrFitScoreSource(catalog),
-		// Draft position (15-16) — same within group
+		// Draft position (15) — same within group
 		NewDraftSlotNormSource(),
-		NewIsPickPhaseSource(),
-		// Semantic draft context (17-23) — patch-invariant relative state
+		// Semantic draft context (16-22) — patch-invariant relative state
 		NewTeamPicksBeforeSource(),
 		NewEnemyPicksBeforeSource(),
 		NewIsFirstPickSource(),

@@ -26,10 +26,11 @@ func NewScorer(spec *domain.FeatureSpec) *Scorer {
 // Calibrated against backtest 2025-10-15 patch 71: R@5=0.42, NDCG@10=0.51.
 // Re-calibrate whenever feature definitions change (bump FeatureSpecVersion).
 //
-// All 24 features from the spec MUST have non-zero weights.  Go map lookups
+// All 23 features from the spec MUST have non-zero weights.  Go map lookups
 // silently return 0.0 for missing keys, which would cause hero priors and
 // semantic draft features to be completely ignored (flatlining cold-start
 // rankings when MV-dependent features 0-7 are constant across candidates).
+// v2026-06-01: removed is_pick_phase (always 1.0 — no ban-phase candidates).
 func defaultWeights() map[string]float64 {
 	return map[string]float64{
 		// ── MV-dependent (0-7) — primary signals when MVs populated ────
@@ -53,11 +54,11 @@ func defaultWeights() map[string]float64 {
 		"attr_is_int":       0.005, // very weak
 		"attr_fit_score":    0.04,  // composition fit, amplifies with draft depth (0-4)
 
-		// ── Draft position (15-16) — same across all candidates in group ─
+		// ── Draft position (15) — same across all candidates in group ──
 		"draft_slot_norm":   0.005, // very weak group-level signal
-		"is_pick_phase":     0.01,  // picks vs bans matters a bit
+		// is_pick_phase removed in v2026-06-01 (always 1.0 — no ban candidates)
 
-		// ── Semantic draft context (17-23) — same across group ─────────
+		// ── Semantic draft context (16-22) — same across group ─────────
 		"team_picks_before":    0.005,
 		"enemy_picks_before":  -0.005, // more enemy picks → harder to counter
 		"is_first_pick":        0.02,  // first pick has higher value

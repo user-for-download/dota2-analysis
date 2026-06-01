@@ -4,6 +4,7 @@ All database queries filter to professional competitive matches:
 - leagueid > 0 (matches with an associated league)
 - lobby_type IN (1, 2) (practice or tournament lobbies)
 """
+from pathlib import Path
 import pandas as pd
 import numpy as np
 from sqlalchemy import text
@@ -237,7 +238,11 @@ def _features_team(
             on="hero_id",
             how="left",
         )
-        df["team_picks"] = df["team_picks"].fillna(df["global_picks"]).astype(int)
+        # SAFETY: chain .fillna(0) — global_picks can be NaN when a hero is
+        # absent from both team_hero MV and hero_global stats (edge case for
+        # very new heroes or corrupted data).  Without the final fillna(0),
+        # .astype(int) raises ValueError: Cannot convert NA to integer.
+        df["team_picks"] = df["team_picks"].fillna(df["global_picks"]).fillna(0).astype(int)
         df["team_wr_shrunk"] = df["team_wr_shrunk"].fillna(df["global_wr_shrunk"])
         df.drop(columns=["global_picks", "global_wr_shrunk"], inplace=True, errors="ignore")
     else:
@@ -602,13 +607,25 @@ def _features_star_threat(
 
 
 def _features_hero_priors(
-    candidates: pd.DataFrame, raw_decisions: pd.DataFrame
+    candidates: pd.DataFrame,
+    raw_decisions: pd.DataFrame,
+    train_match_ids: set[int] | None = None,
+    artifact_dir: Path | None = None,
 ) -> pd.DataFrame:
     """Features 8-10: hero_pick_rate, hero_wr, hero_popularity.
 
-    ITEM-LEVEL PRIORS computed from the full training corpus.  Each hero's
+    ITEM-LEVEL PRIORS computed from the training corpus.  Each hero's
     global pick frequency and win rate varies per candidate, which is the
     minimum requirement for ranking signal.
+
+    When *train_match_ids* is provided, only those matches are used to
+    compute hero-level stats — preventing validation match leakage into
+    the training features.  When None (e.g. evaluation), the full corpus
+    is used (mimicking production where priors reflect all available data).
+
+    When *artifact_dir* is provided, caches the computed hero_stats to
+    ``{artifact_dir}/hero_priors_{split}.parquet`` where split is
+    ``"train"`` or ``"full"`` — useful for debugging cross-run drift.
 
     Not label leakage: with 31 candidates per decision, knowing "Snapfire is
     generally popular" does not reveal "Snapfire was the chosen pick in this
@@ -620,7 +637,17 @@ def _features_hero_priors(
     - Heroes with zero picks get shrink-fitted defaults (pick_rate ~2/N, wr=0.5).
     - Missing heroes in the merge get the same defaults via fillna.
     """
-    picks = raw_decisions[raw_decisions["is_pick"] == True]
+    if train_match_ids is not None:
+        # Training: use only training matches to avoid leakage into val.
+        split_tag = "train"
+        picks = raw_decisions[
+            (raw_decisions["is_pick"] == True)
+            & (raw_decisions["match_id"].isin(train_match_ids))
+        ]
+    else:
+        # Evaluation / production: use all available data.
+        split_tag = "full"
+        picks = raw_decisions[raw_decisions["is_pick"] == True]
 
     hero_stats = (
         picks.groupby("hero_id")
@@ -651,6 +678,12 @@ def _features_hero_priors(
     # Log-scaled pick count captures long-tail popularity where the raw
     # count dominates the pick-rate / n_decisions denominator.
     hero_stats["hero_popularity"] = np.log1p(hero_stats["hero_pick_count"])
+
+    # Cache to disk for cross-run drift debugging.
+    if artifact_dir is not None:
+        cache_path = artifact_dir / f"hero_priors_{split_tag}.parquet"
+        hero_stats.to_parquet(cache_path, index=False)
+        print(f"  Cached hero priors ({split_tag}, {len(hero_stats)} heroes) → {cache_path}")
 
     result = candidates.merge(
         hero_stats[["hero_id", "hero_pick_rate", "hero_wr", "hero_popularity"]],
@@ -726,11 +759,12 @@ def _features_attr_diversity(candidates: pd.DataFrame) -> pd.DataFrame:
 
 
 def _features_draft(candidates: pd.DataFrame, raw_decisions: pd.DataFrame | None = None) -> pd.DataFrame:
-    """Features 15-16+: draft_slot_norm, is_pick_phase, semantic draft context.
+    """Features 15+: draft_slot_norm, semantic draft context.
 
-    Draft position and pick-vs-ban phase — no DB needed, no label leakage.
+    Draft position — no DB needed, no label leakage.
     When raw_decisions is provided, also computes semantic draft features
     that survive format changes (team_picks_made, is_first_pick, etc.).
+    NOTE: is_pick_phase removed from spec v2026-06-01 (always 1.0).
     """
     result = candidates.copy()
     result["draft_slot_norm"] = result["slot"] / 30.0  # normalize to ~[0, 1]
@@ -808,7 +842,9 @@ def _features_draft_semantic(candidates: pd.DataFrame, raw_decisions: pd.DataFra
 
 
 def compute_features(
-    candidates: pd.DataFrame, settings: Settings, raw_decisions: pd.DataFrame
+    candidates: pd.DataFrame, settings: Settings, raw_decisions: pd.DataFrame,
+    train_match_ids: set[int] | None = None,
+    refresh_mvs: bool = True,
 ) -> pd.DataFrame:
     """Compute the feature vector for each candidate row.
 
@@ -820,6 +856,13 @@ def compute_features(
     candidates within the same decision group.  If every candidate
     gets the same value (e.g. team-level defaults from empty MVs),
     the feature contributes zero ranking signal.
+
+    Parameters
+    ----------
+    refresh_mvs : bool
+        If True, refresh all materialized views before loading.
+        Set to False when calling compute_features multiple times
+        in the same pipeline run (only the first call needs to refresh).
 
     Features 0-7   MV-dependent — may return constants when tables empty.
     Features 8-10  Hero priors — VARY per candidate by hero_id.
@@ -833,10 +876,13 @@ def compute_features(
     """
     engine = get_engine(settings)
 
-    # Refresh MVs before reading — they're created WITH NO DATA and
-    # stale if the migration hasn't been refreshed recently.
-    print("Refreshing materialized views...")
-    _refresh_mvs(engine)
+    # Refresh MVs before reading — only the first call in a pipeline run
+    # needs to refresh; subsequent calls can skip (refresh_mvs=False).
+    if refresh_mvs:
+        print("Refreshing materialized views...")
+        _refresh_mvs(engine)
+    else:
+        print("Skipping MV refresh (using previously refreshed views)...")
 
     mvs = _load_mvs(engine)
 
@@ -865,7 +911,12 @@ def compute_features(
 
     # ── Per-candidate features (VARY across heroes — real ranking signal) ──
     # hero_priors: pick-rate, wr, popularity — computed from raw decisions.
-    result = _features_hero_priors(result, raw_decisions)
+    # train_match_ids filters to training matches only (prevents val leakage).
+    result = _features_hero_priors(
+        result, raw_decisions,
+        train_match_ids=train_match_ids,
+        artifact_dir=settings.artifact_dir,
+    )
 
     # draft context: position + semantic features (same per group, weak signal).
     # Must run BEFORE _features_attr_diversity so that team_picks_before is

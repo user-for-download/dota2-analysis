@@ -217,4 +217,4 @@ db-restore-physical: ## Restore a physical volume snapshot. Usage: make db-resto
 		sh -c "rm -rf /var/lib/postgresql/data/* && \
 		       tar xf /backup/$(DUMP) -C /var/lib/postgresql/data"
 	docker start $(DB_CONTAINER)
-	@echo "Restored $(DUMP)
+	@echo "Restored $(DUMP)"

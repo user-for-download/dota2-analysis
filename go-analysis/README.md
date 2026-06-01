@@ -96,9 +96,48 @@ trainer evaluate
 trainer publish
 ```
 
-The training pipeline uses 17 features (8 MV-dependent, 9 per-candidate/draft context) and groups by `(match_id, slot)` to provide true within-decision ranking signal. It handles OOM mitigation (30 negatives per slot, explicit GC) and automatically publishes artifacts to `assets/models/imitation/current/` which are hot-reloaded by the API on SIGHUP.
+The training pipeline uses **23 features** across four groups:
+
+| Group | Features | Ranking Signal |
+|-------|----------|----------------|
+| MV-dependent (0-7) | team_picks, team_wr, synergy, counter, hero_meta, player_comfort, star_threat | Constant across candidates when MVs empty |
+| Hero priors (8-10) | pick_rate, wr, popularity | **Primary** — varies per hero |
+| Attribute draft (11-14) | attr flags + fit_score | **Secondary** — varies per hero |
+| Draft context (15-22) | slot_norm, team/enemy picks before, phase flags | Weak (same across candidates in a group) |
+
+> **Note:** `is_pick_phase` was removed in v2026-06-01 — the training pipeline skips ban-phase candidates entirely, so it was always 1.0. The Go linear scorer still has access to this feature via its own registry.
+
+**Key design decisions:**
+- **Match-split before feature computation** — hero priors use training-set-only stats to prevent validation leakage
+- **30 negative samples per slot** — keeps group sizes manageable for LambdaMART while providing a realistic ranking pool
+- **MV refresh once per pipeline run** — `refresh_mvs=False` on subsequent `compute_features` calls saves minutes
+- **Train/eval asymmetry documented** — restricted-set (~31 cand/slot) vs full-pool (~127 cand/slot) metrics are not directly comparable
+- **Feature importance saved** to `meta.json` per training run for debugging
+
+**Models produced:**
+| Model | Directory | Type | Purpose |
+|-------|-----------|------|---------|
+| Imitation | `imitation/current/` | LambdaMART ranker | Ranks heroes per draft slot to mimic pro decisions |
+| Outcome predictor | `value/current/` | Binary classifier | Predicts P(win \| pick was made) — NOT a pick-value model (see `train_value.py` docstring) |
+
+The pipeline automatically publishes artifacts to `assets/models/imitation/current/` and `assets/models/value/current/` which are hot-reloaded by the API on SIGHUP.
 
 **Training data criteria**: Only professional matches (`leagueid > 0`) in practice or tournament lobbies (`lobby_type IN (1, 2)`) are used for training. This ensures the model learns from competitive match data only.
+
+## Testing
+
+```bash
+# Unit tests (no database required)
+cd training && pip install ".[test]" && python -m pytest tests/test_features.py -v
+
+# Integration tests (requires Postgres with Dota 2 data)
+TRAINER_POSTGRES_DSN=postgresql://dota2:dota2@localhost:5432/dota2 \
+  python -m pytest tests/test_integration.py -v -x
+```
+
+**Test coverage areas:**
+- `test_features.py` — 8 unit tests for leakage prevention, shrinkage math, fillna behaviour, candidate generation edge cases
+- `test_integration.py` — 7 integration tests for end-to-end extract → train → evaluate, model artifact validation, NaN/inf guards
 
 ## See Also
 

@@ -21,3 +21,17 @@ dependencies = [
 
 [project.scripts]
 trainer = "trainer.__main__:cli"
+
+[project.optional-dependencies]
+test = [
+    "pytest>=7.0",
+    "pytest-xdist>=3.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+filterwarnings = ["ignore::FutureWarning"]
+markers = [
+    "integration: marks tests that require a live Postgres database (deselect with '-m \"not integration\"')",
+]

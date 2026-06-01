@@ -67,7 +67,13 @@
    - Backtester also blocks on the same key before evaluating models
 4. **Trainer** (Python, on-demand):
    - Reads historical data from Postgres
-   - Trains LightGBM model → writes `model.bin`, `spec.json`, `meta.json` to `/models/`
+   - Trains two models:
+     - **Imitation model** (LambdaMART ranker) → `imitation/current/model.bin` — ranks heroes per draft slot
+     - **Outcome predictor** (binary classifier) → `value/current/model.bin` — predicts P(win \| pick was made)
+   - Splits matches **before** feature computation to prevent hero prior leakage
+   - Refreshes materialized views once per pipeline run (not 4×)
+   - Saves feature importance and constant-feature warnings to `meta.json`
+   - Publishes artifacts to `/models/` via atomic symlink swap
 5. **Backtester** (offline):
    - Replays historical drafts against the current model
    - Reports baseline metrics (accuracy, pick rate correlation)
@@ -293,8 +299,8 @@ go-analysis/
 ├── ARCHITECTURE.md              # This file
 ├── assets/
 │   └── models/                  # ML model artifacts
-│       ├── imitation/current/   # Active imitation learning model
-│       └── value/               # Value model directory
+│       ├── imitation/current/   # Active imitation learning model (LambdaMART ranker)
+│       └── value/               # Outcome predictor model (see train_value.py — NOT a pick-value model)
 ├── build/
 │   └── dockerfiles/             # Docker build definitions
 │       ├── Dockerfile.base      # Multi-arch Go builder (all binaries)
@@ -586,20 +592,37 @@ Get a player's hero comfort and recent team history.
    ```bash
    docker compose --profile training up trainer
    ```
+   The trainer runs: `extract → quality → train_imitation → train_value → evaluate → gate → publish`
 
 2. **Verify artifacts** were produced:
    ```bash
    ls -la assets/models/imitation/current/
    # Should contain: model.bin, spec.json, meta.json
+
+   ls -la assets/models/value/current/
+   # Outcome predictor model (binary classifier)
    ```
 
-3. **Switch scorer to LGBM** (if currently using linear):
+3. **Check training metrics** in `meta.json`:
+   ```bash
+   # Imitation model (ranker)
+   cat assets/models/imitation/current/meta.json | jq '.recall_at_5, .recall_at_5_full, .feature_importance_gain'
+
+   # Outcome predictor (binary classifier)
+   cat assets/models/value/current/meta.json | jq '.auc'
+   ```
+   Key validation gates:
+   - `recall_at_5 >= 0.3` (restricted set, ~31 candidates/slot)
+   - `recall_at_5_full >= 0.15` (full pool, ~127 candidates/slot — harder)
+   - Constant-feature warnings printed during training if MVs are empty
+
+4. **Switch scorer to LGBM** (if currently using linear):
    ```bash
    export ANALYTICS_SCORER_KIND=lgbm
    docker compose restart api
    ```
 
-4. **Verify model loaded**:
+5. **Verify model loaded**:
    ```bash
    curl -H "Authorization: Bearer $API_TOKEN" http://localhost:8080/v1/health
    # Check "scorer": "dynamic" (or "lgbm") and "model_version" is populated
@@ -607,7 +630,7 @@ Get a player's hero comfort and recent team history.
 
 ### Dynamic Feature Loading
 
-The Go API uses `NewBuilderFromSpec` to dynamically load the feature specification from `spec.json`. This allows the ML team to add, remove, or reorder features (from the 17 available feature sources) without requiring a Go recompile. If `spec.json` fails to load or contains unknown features, the API gracefully falls back to the `DefaultSources` ordering.
+The Go API uses `NewBuilderFromSpec` to dynamically load the feature specification from `spec.json`. This allows the ML team to add, remove, or reorder features (from the 24 available feature sources) without requiring a Go recompile. If `spec.json` fails to load or contains unknown features, the API gracefully falls back to the `DefaultSources` ordering.
 
 ### Hot-Reload (SIGHUP)
 
@@ -618,6 +641,10 @@ If the API is already running with LGBM scorer, you can hot-reload the model wit
 cp /path/to/new/model.bin assets/models/imitation/current/
 cp /path/to/new/spec.json assets/models/imitation/current/
 cp /path/to/new/meta.json assets/models/imitation/current/
+
+# Outcome predictor (hot-reloaded independently)
+cp /path/to/new/model.bin assets/models/value/current/
+cp /path/to/new/meta.json assets/models/value/current/
 
 # Send SIGHUP to trigger reload
 docker kill --signal=SIGHUP dota2-analysis-api
@@ -688,13 +715,24 @@ psql -c "SELECT MAX(patch_id) FROM public.matches;"
 
 **Causes:**
 - Model files missing from `/models/imitation/current/`
-- `spec.json` does not match expected feature spec
+- `spec.json` does not match expected feature spec (23 features, `2026-06-01` version)
 - `model.bin` is corrupted
+- MV-dependent features are constant (empty MVs) causing zero gradient — check training output for `WARNING: Feature '...' is CONSTANT`
 
 **Fix:**
 ```bash
-# Check model files exist
+# Check imitation model files exist
 ls -la assets/models/imitation/current/
+
+# Check outcome predictor model files
+ls -la assets/models/value/current/
+
+# Verify feature spec version matches Go side
+cat assets/models/imitation/current/spec.json | jq '.version'
+# Expected: "2026-06-01"
+
+# Check model metrics (feature importance reveals which features are dead)
+cat assets/models/imitation/current/meta.json | jq '.feature_importance_gain'
 
 # Check API logs for load errors
 docker logs dota2-analysis-api

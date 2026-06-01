@@ -18,6 +18,11 @@ def run(settings: Settings):
     Uses LightGBM's lambdarank objective to learn a ranking over heroes
     that mimics professional draft decisions. The model is trained per-match
     (groups) so that NDCG is computed within each draft context.
+
+    Design decision — split matches BEFORE feature computation:
+    Hero-prior features (pick rate, win rate) are computed from the training
+    set ONLY to prevent validation match leakage.  Validation uses the full
+    corpus (simulating production where priors reflect all available data).
     """
     raw_decisions = pd.read_parquet(settings.artifact_dir / "decisions.parquet")
 
@@ -29,15 +34,45 @@ def run(settings: Settings):
     )
     all_heroes = hero_df["hero_id"].tolist()
 
-    # Generate negative samples (unpicked heroes with label=0).
-    print("Generating candidates...")
-    candidates = generate_candidates(raw_decisions, all_heroes)
+    # ── Split match IDs FIRST (prevents hero prior leakage into val) ──────
+    match_ids = raw_decisions["match_id"].unique()
+    np.random.seed(42)
+    np.random.shuffle(match_ids)
+    split_idx = int(len(match_ids) * 0.8)
+    train_match_ids = set(match_ids[:split_idx])
+    val_match_ids = set(match_ids[split_idx:])
 
-    # Compute all features (MV-dependent + MV-independent).
-    print("Computing features...")
-    candidates = compute_features(candidates, settings, raw_decisions=raw_decisions)
+    train_decisions = raw_decisions[raw_decisions["match_id"].isin(train_match_ids)]
+    val_decisions = raw_decisions[raw_decisions["match_id"].isin(val_match_ids)]
 
-    # Save full candidate dataset (features + labels) for evaluate.py.
+    print(f"Train matches: {len(train_match_ids)}, Val matches: {len(val_match_ids)}")
+
+    # ── Training candidates — features computed with train-only priors ────
+    print("Generating training candidates...")
+    train_candidates = generate_candidates(train_decisions, all_heroes)
+    print("Computing training features (train-only hero priors, fresh MVs)...")
+    train_candidates = compute_features(
+        train_candidates, settings, raw_decisions=raw_decisions,
+        train_match_ids=train_match_ids,
+        refresh_mvs=True,  # first call — refresh MVs
+    )
+
+    # ── Validation candidates — features computed with full-corpus priors ──
+    # Using full-corpus priors simulates production: in inference, the model
+    # will query hero priors from all historical data, not just a held-out set.
+    print("Generating validation candidates...")
+    val_candidates = generate_candidates(val_decisions, all_heroes)
+    print("Computing validation features (full-corpus hero priors)...")
+    val_candidates = compute_features(
+        val_candidates, settings, raw_decisions=raw_decisions,
+        train_match_ids=None,  # full corpus
+        refresh_mvs=False,  # MVs already refreshed above
+    )
+
+    # ── Combine for persistence (evaluate.py reads candidates.parquet) ────
+    train_candidates["split"] = "train"
+    val_candidates["split"] = "val"
+    candidates = pd.concat([train_candidates, val_candidates], ignore_index=True)
     cand_path = settings.artifact_dir / "candidates.parquet"
     candidates.to_parquet(cand_path, index=False)
     print(f"Saved {len(candidates)} feature-rich candidates to {cand_path}")
@@ -46,47 +81,45 @@ def run(settings: Settings):
     feature_cols = [f["name"] for f in FEATURES]
     print(f"Training with {len(feature_cols)} features: {feature_cols}")
 
-    # Sanity check: verify all feature columns exist.
+    # Sanity checks: verify all feature columns exist with no NaN/inf.
     missing = [c for c in feature_cols if c not in candidates.columns]
     if missing:
         raise RuntimeError(f"Missing feature columns: {missing}")
-
-    # Sanity check: verify no NaN or inf values (breaks LightGBM training).
     for col in feature_cols:
-        if candidates[col].isna().any():
-            n_na = candidates[col].isna().sum()
-            raise RuntimeError(f"Feature column '{col}' has {n_na} NaN values")
-        if np.isinf(candidates[col]).any():
-            n_inf = np.isinf(candidates[col].values).sum()
-            raise RuntimeError(f"Feature column '{col}' has {n_inf} inf values")
+        for subset, name in [(train_candidates, "train"), (val_candidates, "val")]:
+            if subset[col].isna().any():
+                raise RuntimeError(f"{name} feature '{col}' has {subset[col].isna().sum()} NaN values")
+            if np.isinf(subset[col].values).any():
+                raise RuntimeError(f"{name} feature '{col}' has inf values")
 
-    # Split by match_id (critical for ranking: never split inside a match).
-    match_ids = candidates["match_id"].unique()
-    np.random.seed(42)
-    np.random.shuffle(match_ids)
-    split_idx = int(len(match_ids) * 0.8)
-
-    train_df = candidates[candidates["match_id"].isin(match_ids[:split_idx])]
-    val_df = candidates[candidates["match_id"].isin(match_ids[split_idx:])]
+    # Warn about constant features (zero ranking signal for LambdaMART).
+    for col in feature_cols:
+        n_unique = train_candidates[col].nunique()
+        if n_unique == 1:
+            val = train_candidates[col].iloc[0]
+            print(f"  WARNING: Feature '{col}' is CONSTANT (value={val:.4f}) in training set")
+            print(f"    → Zero ranking signal. Likely an empty MV — check MVs are populated.")
+        elif n_unique <= 5:
+            print(f"  NOTE: Feature '{col}' has only {n_unique} unique values (low cardinality)")
 
     # Create a unique decision ID for grouping (match_id + slot)
     # LambdaMART must rank candidates WITHIN a single decision context,
     # not across the entire match.
-    train_df = train_df.sort_values(["match_id", "slot"])
-    val_df = val_df.sort_values(["match_id", "slot"])
+    train_candidates = train_candidates.sort_values(["match_id", "slot"])
+    val_candidates = val_candidates.sort_values(["match_id", "slot"])
 
-    X_train = train_df[feature_cols].values.astype(float)
-    y_train = train_df["label"].values
-    groups_train = train_df.groupby(["match_id", "slot"], sort=False).size().values
+    X_train = train_candidates[feature_cols].values.astype(float)
+    y_train = train_candidates["label"].values
+    groups_train = train_candidates.groupby(["match_id", "slot"], sort=False).size().values
 
-    X_val = val_df[feature_cols].values.astype(float)
-    y_val = val_df["label"].values
-    groups_val = val_df.groupby(["match_id", "slot"], sort=False).size().values
+    X_val = val_candidates[feature_cols].values.astype(float)
+    y_val = val_candidates["label"].values
+    groups_val = val_candidates.groupby(["match_id", "slot"], sort=False).size().values
 
     # Free memory
     import gc
-    del train_df
-    del val_df
+    del train_candidates
+    del val_candidates
     del candidates
     gc.collect()
 
@@ -137,6 +170,16 @@ def run(settings: Settings):
     # Save metadata
     dir_ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     iso_ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    # Feature importance (gain = improvement when this feature is used in splits).
+    importance = booster.feature_importance(importance_type="gain")
+    feat_importance = {
+        name: float(gain)  # numpy → native Python for JSON serialisation
+        for name, gain in sorted(
+            zip(feature_cols, importance), key=lambda x: x[1], reverse=True
+        )
+    }
+
     meta = {
         "version": f"imitation-v{settings.patch_id}-{dir_ts}",
         "trained_at": iso_ts,
@@ -144,6 +187,9 @@ def run(settings: Settings):
         "ndcg_at_10": -1.0,    # placeholder — evaluate.py computes this; -1.0 = not yet computed
         "best_iter": booster.best_iteration,
         "patch_id": settings.patch_id,
+        "feature_importance_gain": feat_importance,
+        "train_matches": len(train_match_ids),
+        "val_matches": len(val_match_ids),
     }
     with open(out_dir / "meta.json", "w") as f:
         json.dump(meta, f, indent=2)

@@ -225,17 +225,20 @@ func (d *Doer) doWithLease(ctx context.Context, req *http.Request, attempt int) 
 				return nil, fmt.Errorf("proxy-level HTTP %d", resp.StatusCode)
 			}
 
-			// Target-server errors: the proxy routed the request and the upstream
-			// replied.  The proxy did its job correctly — do NOT penalise it.
-			if resp.StatusCode == http.StatusTooManyRequests {
-				err := fmt.Errorf("%w: HTTP %d", proxy.ErrRateLimited, resp.StatusCode)
-				lease.MarkFailure(context.WithoutCancel(ctx), err)
-				return nil, err
-			}
-			perr := &permanentHTTPError{StatusCode: resp.StatusCode}
-			lease.MarkSuccess(context.WithoutCancel(ctx))
-			return nil, perr
+		// Target-server errors: the proxy successfully forwarded the request
+		// and the upstream replied with a *target-level* error (not a proxy-level
+		// one like 502/503/504).  Despite correct proxy behaviour, a 429 means
+		// this proxy's IP is now rate-limited by the upstream — mark it as a
+		// failure so future requests in the pool switch to a different proxy IP.
+		if resp.StatusCode == http.StatusTooManyRequests {
+			lease.MarkFailure(context.WithoutCancel(ctx),
+				fmt.Errorf("upstream rate-limited proxy IP: HTTP %d", resp.StatusCode))
+			return nil, fmt.Errorf("%w: HTTP %d", proxy.ErrRateLimited, resp.StatusCode)
 		}
+		perr := &permanentHTTPError{StatusCode: resp.StatusCode}
+		lease.MarkSuccess(context.WithoutCancel(ctx))
+		return nil, perr
+	}
 
 		// Eager-read the body inside the lease boundary to catch slow-proxy timeouts
 		// and guarantee the proxy is not overloaded by premature release.

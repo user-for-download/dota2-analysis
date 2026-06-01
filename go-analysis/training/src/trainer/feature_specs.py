@@ -7,7 +7,8 @@ signal during cold-start training.
 """
 
 # Must match internal/features/specs.go:FeatureSpecVersion
-FEATURE_SPEC_VERSION = "2026-05-26"
+# v2026-06-01: removed is_pick_phase (constant=1.0 — all candidates are picks)
+FEATURE_SPEC_VERSION = "2026-06-01"
 
 # Must match internal/features/specs.go:FeatureDefs() — same names, dtypes, order.
 # source_hash stores the human-readable description (Go stores the SHA-256[:8] of this).
@@ -32,7 +33,10 @@ FEATURES = [
     {"name": "attr_fit_score", "dtype": "f32", "source_hash": "attr_fit_score: team_picks * (is_int*0.5 + is_agi*0.3 + is_str*0.2)"},
     # ── Draft position (same within group — weak group-level signal only) ──
     {"name": "draft_slot_norm", "dtype": "f32", "source_hash": "draft_slot_norm: slot/max_slot normalized to [0,1]"},
-    {"name": "is_pick_phase", "dtype": "f32", "source_hash": "is_pick_phase: 1.0 for picks, 0.0 for bans"},
+    # NOTE: is_pick_phase removed in v2026-06-01 — all training candidates are
+    # picks (bans are skipped at candidate-generation time), so the feature is
+    # always 1.0 and provides zero ranking signal.  The Go linear scorer still
+    # has access to it via its own feature registry for weight-based scoring.
     # ── Semantic draft context (same within group — patch-invariant state) ──
     {"name": "team_picks_before", "dtype": "f32", "source_hash": "team_picks_before: picks by acting_team before this slot"},
     {"name": "enemy_picks_before", "dtype": "f32", "source_hash": "enemy_picks_before: picks by enemy team before this slot"},
