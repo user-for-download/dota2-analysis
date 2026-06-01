@@ -18,7 +18,7 @@ COMPOSE := docker compose -p $(PROJECT_NAME) --project-directory . -f $(COMPOSE_
         shell-db shell-redis \
         publish-core \
         test vet new-migration migrate-local \
-        db-backup db-restore \
+        db-backup db-restore db-backup-physical db-restore-physical \
         prune armageddon
 
 # ───── Help ─────
@@ -176,3 +176,45 @@ db-restore: ## Restore a database backup. Usage: make db-restore DUMP=file.dump 
 	@docker exec -i $(DB_CONTAINER) rm /tmp/db_restore.dump
 
 	@echo "Restore complete!"
+
+# ───── Physical volume snapshot (fast — raw data dir, no logical export) ─────
+# These snapshot/restore the entire PostgreSQL data directory at the filesystem
+# level using --volumes-from.  Much faster than pg_dump for large databases
+# because there is no logical export/import step.
+# Requires stopping postgres briefly (writes must be quiesced for a consistent
+# snapshot).
+DB_PHYSICAL_BACKUP_DIR ?= ./backups
+
+db-backup-physical: ## Create a physical volume snapshot (fast, stops postgres)
+	@echo "── Stopping $(DB_CONTAINER) ──"
+	docker stop $(DB_CONTAINER)
+	@mkdir -p $(DB_PHYSICAL_BACKUP_DIR)
+	@echo "── Snapshotting volume ──"
+	docker run --rm \
+		--volumes-from $(DB_CONTAINER) \
+		-v $(DB_PHYSICAL_BACKUP_DIR):/backup \
+		alpine \
+		tar cf /backup/pgdata_$$(date +%Y%m%d_%H%M%S).tar \
+			-C /var/lib/postgresql/data .
+	docker start $(DB_CONTAINER)
+	@echo "Done — snapshot saved to $(DB_PHYSICAL_BACKUP_DIR)/pgdata_*.tar"
+
+db-restore-physical: ## Restore a physical volume snapshot. Usage: make db-restore-physical DUMP=pgdata_xxx.tar
+	@if [ -z "$(DUMP)" ]; then \
+		echo "ERROR: You must specify the snapshot file."; \
+		echo "Usage: make db-restore-physical DUMP=./backups/pgdata_xxx.tar"; \
+		exit 1; \
+	fi
+	@echo "⚠️  Physical restore — will WIPE current data in $(DB_CONTAINER)."
+	@printf "Continue? (y/N) "; \
+	read confirm; \
+	if [ "$$confirm" != "y" ]; then echo "Restore aborted."; exit 1; fi
+	docker stop $(DB_CONTAINER)
+	docker run --rm \
+		--volumes-from $(DB_CONTAINER) \
+		-v $(DB_PHYSICAL_BACKUP_DIR):/backup \
+		alpine \
+		sh -c "rm -rf /var/lib/postgresql/data/* && \
+		       tar xf /backup/$(DUMP) -C /var/lib/postgresql/data"
+	docker start $(DB_CONTAINER)
+	@echo "Restored $(DUMP)

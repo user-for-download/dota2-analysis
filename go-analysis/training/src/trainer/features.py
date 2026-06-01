@@ -367,15 +367,13 @@ def _features_counter(
     # Cross each candidate with enemy picks in the same match.
     cross = df[["match_id", "hero_id", "acting_team", "opp_team", "slot"]].drop_duplicates()
 
-    # Find enemy picks: rows in same match where acting_team = candidate's opp_team
-    # We join cross with enemy_map: candidate's opp_team matches enemy's acting_team
-    # Ensure enemy_map has no duplicate join keys — duplicates would cause
-    # a silent Cartesian explosion in the inner merge below.
-    enemy_dupes = enemy_map.duplicated(subset=["match_id", "enemy_acting"])
-    if enemy_dupes.any():
-        print(f"WARNING: {enemy_dupes.sum()} duplicate enemy entries before merge")
-    enemy_map = enemy_map[~enemy_dupes]
-
+    # Find enemy picks: rows in same match where acting_team = candidate's opp_team.
+    # We intentionally do NOT deduplicate on ["match_id", "enemy_acting"] — all 5
+    # enemy picks share the same enemy_acting (team ID), so deduping would drop
+    # 4 of 5 enemies and the subsequent groupby mean would average against a
+    # single enemy instead of the full composition.  The N×5 Cartesian cross is
+    # intended: it lets .groupby(["match_id", "hero_id"]).mean() correctly
+    # average the counter win rate across the entire enemy lineup.
     cross = cross.merge(
         enemy_map,
         left_on=["match_id", "opp_team"],
@@ -549,62 +547,44 @@ def _features_star_threat(
 ) -> pd.DataFrame:
     """Feature 7: star_threat.
 
-    The opponent's average best-hero comfort across their roster.
-    For each opponent player, take their single highest shrunk_wr hero
-    (signature hero), then average those values as the threat level.
+    The opponent team's historical shrunk win rate on each candidate hero.
+    This matches the Go inference side (StarThreatSource → StarThreatBatch):
+
+        SELECT hero_id, shrunk_wr
+        FROM analytics.mv_team_hero_profile
+        WHERE team_id = $1 AND hero_id = ANY($2) AND games >= 3
+
+    Unlike the previous implementation (which averaged each opponent PLAYER's
+    best-hero comfort — constant across all candidates), this per-candidate
+    lookup varies by hero_id, delivering genuine ranking gradient to LambdaMART.
     """
-    ph = mvs["player_hero"]
+    th = mvs["team_hero"]
     hg = mvs.get("hero_global")
 
-    if ph.empty:
-        if hg is not None and not hg.empty:
-            # Fallback: average global WR across all heroes as generic threat.
-            df["star_threat"] = hg["global_wr_shrunk"].mean()
-        else:
-            df["star_threat"] = 0.5
-        return df
-
-    match_ids = df["match_id"].unique().tolist()
-    roster = _load_roster(engine, match_ids)
-
-    if roster.empty:
-        if hg is not None and not hg.empty:
-            df["star_threat"] = hg["global_wr_shrunk"].mean()
-        else:
-            df["star_threat"] = 0.5
-        return df
-
-    # For each (match_id, opp_team), get the opponent roster.
-    # Assert dedup is already done at the SQL layer — if not, catch regressions.
-    dupes = roster.duplicated(subset=["match_id", "team_id", "account_id"])
-    if dupes.any():
-        print(f"WARNING: {dupes.sum()} duplicate roster rows found — SQL query needs DISTINCT")
-    roster_uq = roster[~dupes]  # safe dedup (but push to SQL in production)
-
-    # Each player's best hero (highest shrunk_wr)
-    player_best = ph.loc[
-        ph.groupby("account_id")["ph_comfort"].idxmax()
-    ].rename(columns={"ph_comfort": "signature_comfort"})[
-        ["account_id", "signature_comfort"]
-    ]
-
-    # Cross each candidate with the opponent roster.
-    cross = df[["match_id", "opp_team", "hero_id"]].drop_duplicates().merge(
-        roster_uq.rename(columns={"team_id": "opp_roster_team"}),
-        left_on=["match_id", "opp_team"],
-        right_on=["match_id", "opp_roster_team"],
-        how="inner",
+    # Look up the opponent team's WR on each candidate hero.
+    star = df[["match_id", "opp_team", "hero_id"]].drop_duplicates().merge(
+        th[["team_id", "hero_id", "team_wr_shrunk"]],
+        left_on=["opp_team", "hero_id"],
+        right_on=["team_id", "hero_id"],
+        how="left",
     )
+    star.rename(columns={"team_wr_shrunk": "star_threat"}, inplace=True)
 
-    # Merge each opponent player's signature comfort.
-    cross = cross.merge(player_best, on="account_id", how="left")
-    cross["signature_comfort"] = cross["signature_comfort"].fillna(0.5)
+    # Fill missing (no team history for this hero) with global WR.
+    if hg is not None and not hg.empty:
+        star = star.merge(
+            hg[["hero_id", "global_wr_shrunk"]],
+            on="hero_id",
+            how="left",
+        )
+        star["star_threat"] = star["star_threat"].fillna(star["global_wr_shrunk"])
+        star.drop(columns=["global_wr_shrunk"], inplace=True, errors="ignore")
+    else:
+        star["star_threat"] = star["star_threat"].fillna(0.5)
 
-    # Average across the opponent roster.
-    avg_threat = cross.groupby(["match_id", "hero_id"], as_index=False)["signature_comfort"].mean()
-    avg_threat.rename(columns={"signature_comfort": "star_threat"}, inplace=True)
+    star.drop(columns=["opp_team", "team_id"], inplace=True, errors="ignore")
 
-    df = df.merge(avg_threat, on=["match_id", "hero_id"], how="left")
+    df = df.merge(star[["match_id", "hero_id", "star_threat"]], on=["match_id", "hero_id"], how="left")
     df["star_threat"] = df["star_threat"].fillna(0.5)
     return df
 
