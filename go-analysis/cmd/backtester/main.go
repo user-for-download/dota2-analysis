@@ -73,7 +73,7 @@ func main() {
 	}
 
 	// Load pick frequency baseline.
-	pfBaseline, err := eval.NewPickFrequencyBaseline(ctx, deps.DB, patchID)
+	pfBaseline, err := eval.NewPickFrequencyBaseline(ctx, deps.DB, patchID, cfg.Analytics.DepthPatch)
 	if err != nil {
 		log.Error("load pick frequency baseline", "err", err)
 	} else {

@@ -14,8 +14,12 @@ class Settings(BaseSettings):
     # Database — must match Go service DSN format
     postgres_dsn: str = "postgresql://dota2:dota2@localhost:5432/dota2"
 
-    # Patch ID to train on
+    # Patch ID to train on (the "anchor" or most recent patch)
     patch_id: int = 72
+
+    # Number of consecutive patches to include (ending at patch_id).
+    # 1 = single patch, >1 = groups multiple patches (e.g. 4 for "7.4x" grouping)
+    depth_patch: int = 1
 
     # Paths
     artifact_dir: Path = Path("/app/artifacts")
@@ -27,6 +31,10 @@ class Settings(BaseSettings):
     num_leaves: int = 31
     min_child_samples: int = 20
     early_stopping_rounds: int = 50
+
+    # ── Extraction & Candidate Generation ──
+    extract_limit: int = 0      # 0 = no limit (full training), >0 = LIMIT N rows
+    max_negatives: int = 15     # Negative samples per positive pick
 
     # Evaluation thresholds
     recall_threshold: float = 0.3

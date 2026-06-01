@@ -110,7 +110,9 @@ func (r *PGRepository) SynergyAvgBatch(ctx context.Context, allies, candidates [
 
 // GlobalHeroStatsBatch returns global pick+win counts for heroes from picks_bans.
 // If patchID is non-zero, stats are filtered to that patch only.
-func (r *PGRepository) GlobalHeroStatsBatch(ctx context.Context, heroes []domain.HeroID, patchID domain.PatchID) (map[domain.HeroID]profiles.GlobalHeroStats, error) {
+// depth controls how many consecutive patches to include (ending at patchID).
+// 1 = single patch, >1 = groups multiple patches.
+func (r *PGRepository) GlobalHeroStatsBatch(ctx context.Context, heroes []domain.HeroID, patchID domain.PatchID, depth int32) (map[domain.HeroID]profiles.GlobalHeroStats, error) {
 	out := make(map[domain.HeroID]profiles.GlobalHeroStats, len(heroes))
 	for _, h := range heroes {
 		out[h] = profiles.GlobalHeroStats{}
@@ -122,8 +124,13 @@ func (r *PGRepository) GlobalHeroStatsBatch(ctx context.Context, heroes []domain
 	var patchFilter string
 	var args []any
 	if patchID > 0 {
-		patchFilter = " AND m.patch_id = $2"
-		args = []any{heroIDsToInt16(heroes), int32(patchID)}
+		if depth > 1 {
+			patchFilter = " AND m.patch_id IN (SELECT id FROM patches WHERE id <= $2 ORDER BY id DESC LIMIT $3) "
+			args = []any{heroIDsToInt16(heroes), int32(patchID), depth}
+		} else {
+			patchFilter = " AND m.patch_id = $2 "
+			args = []any{heroIDsToInt16(heroes), int32(patchID)}
+		}
 	} else {
 		args = []any{heroIDsToInt16(heroes)}
 	}
@@ -162,12 +169,19 @@ func (r *PGRepository) GlobalHeroStatsBatch(ctx context.Context, heroes []domain
 // GlobalTotalPicks returns total picks across ALL heroes for the given patch
 // (or whole corpus when patchID is 0).  This matches the Python training
 // denominator: sum of hero_pick_count across all heroes (features.py line 691).
-func (r *PGRepository) GlobalTotalPicks(ctx context.Context, patchID domain.PatchID) (int, error) {
+// depth controls how many consecutive patches to include (ending at patchID).
+// 1 = single patch, >1 = groups multiple patches.
+func (r *PGRepository) GlobalTotalPicks(ctx context.Context, patchID domain.PatchID, depth int32) (int, error) {
 	var patchFilter string
 	var args []any
 	if patchID > 0 {
-		patchFilter = " AND m.patch_id = $1"
-		args = []any{int32(patchID)}
+		if depth > 1 {
+			patchFilter = " AND m.patch_id IN (SELECT id FROM patches WHERE id <= $1 ORDER BY id DESC LIMIT $2) "
+			args = []any{int32(patchID), depth}
+		} else {
+			patchFilter = " AND m.patch_id = $1 "
+			args = []any{int32(patchID)}
+		}
 	}
 
 	var total int

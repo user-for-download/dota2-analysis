@@ -39,7 +39,8 @@ func (r *FeatureRegistry) MustRegister(name string, fn FeatureFactory) {
 
 // DefaultRegistry returns a registry pre-populated with all known
 // feature sources that ship with this Go binary.
-func DefaultRegistry() *FeatureRegistry {
+// depth controls patch grouping: 1 = single patch, >1 = groups multiple patches.
+func DefaultRegistry(depth int32) *FeatureRegistry {
 	r := NewFeatureRegistry()
 
 	r.Register("team_picks", func(repo profiles.Repository, _ domain.HeroCatalog) (FeatureSource, error) {
@@ -69,13 +70,13 @@ func DefaultRegistry() *FeatureRegistry {
 
 	// ── Per-candidate hero priors ────────────────────────────────────
 	r.Register("hero_pick_rate", func(repo profiles.Repository, _ domain.HeroCatalog) (FeatureSource, error) {
-		return NewHeroPickRateSource(repo), nil
+		return NewHeroPickRateSource(repo, depth), nil
 	})
 	r.Register("hero_wr", func(repo profiles.Repository, _ domain.HeroCatalog) (FeatureSource, error) {
-		return NewHeroWRSource(repo), nil
+		return NewHeroWRSource(repo, depth), nil
 	})
 	r.Register("hero_popularity", func(repo profiles.Repository, _ domain.HeroCatalog) (FeatureSource, error) {
-		return NewHeroPopularitySource(repo), nil
+		return NewHeroPopularitySource(repo, depth), nil
 	})
 
 	// ── Attribute-based draft features ──────────────────────────────
@@ -155,7 +156,8 @@ func NewBuilderFromSpec(spec *domain.FeatureSpec, repo profiles.Repository, cata
 // DefaultSources returns the hardcoded default feature source ordering used
 // when no spec.json is available (linear path or LGBM fallback).  The order
 // must match FEATURES in the training pipeline's feature_specs.py.
-func DefaultSources(repo profiles.Repository, catalog domain.HeroCatalog) []FeatureSource {
+// depth controls patch grouping: 1 = single patch, >1 = groups multiple patches.
+func DefaultSources(repo profiles.Repository, catalog domain.HeroCatalog, depth int32) []FeatureSource {
 	return []FeatureSource{
 		// MV-dependent (0-7)
 		NewTeamPicksSource(repo),
@@ -167,9 +169,9 @@ func DefaultSources(repo profiles.Repository, catalog domain.HeroCatalog) []Feat
 		NewPlayerComfortSource(repo),
 		NewStarThreatSource(repo),
 		// Hero priors (8-10) — vary per candidate
-		NewHeroPickRateSource(repo),
-		NewHeroWRSource(repo),
-		NewHeroPopularitySource(repo),
+		NewHeroPickRateSource(repo, depth),
+		NewHeroWRSource(repo, depth),
+		NewHeroPopularitySource(repo, depth),
 		// Attribute diversity (11-14) — vary per candidate
 		NewAttrIsStrSource(catalog),
 		NewAttrIsAgiSource(catalog),

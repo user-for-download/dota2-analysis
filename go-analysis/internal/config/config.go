@@ -26,6 +26,7 @@ type PostgresConfig struct {
 
 type AnalyticsConfig struct {
 	CurrentPatchID     int32
+	DepthPatch         int32
 	ModelDir           string
 	ValueModelDir      string
 	ScorerKind         string
@@ -62,6 +63,7 @@ func Load(path string) (*Config, error) {
 		},
 		Analytics: AnalyticsConfig{
 			CurrentPatchID:     int32(clampInt(getInt("ANALYTICS_PATCH_ID", 0), 0, 1<<31-1)),
+			DepthPatch:         int32(clampInt(getInt("ANALYTICS_DEPTH_PATCH", 1), 1, 100)),
 			ModelDir:           getStr("ANALYTICS_MODEL_DIR", "./deploy/models/imitation/current"),
 			ValueModelDir:      getStr("ANALYTICS_VALUE_MODEL_DIR", "./deploy/models/value/current"),
 			ScorerKind:         getStr("ANALYTICS_SCORER_KIND", "linear"),

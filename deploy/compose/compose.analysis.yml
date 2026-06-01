@@ -95,13 +95,14 @@ services:
         container_name: dota2-analysis-trainer
         profiles: [training]
         restart: "no"
-        mem_limit: 10g
+        mem_limit: 56g
         command: pipeline
         env_file: [.env]
         environment:
             <<: *common-env
             TRAINER_POSTGRES_DSN: postgresql://${POSTGRES_USER:-dota2}:${POSTGRES_PASSWORD:-dota2}@postgres:5432/${POSTGRES_DB:-dota2}
             TRAINER_PATCH_ID: ${ANALYTICS_PATCH_ID:-72}
+            TRAINER_DEPTH_PATCH: ${ANALYTICS_DEPTH_PATCH:-1}
             TRAINER_ARTIFACT_DIR: /app/artifacts
             TRAINER_MODEL_DIR: /models
         volumes:

@@ -14,11 +14,12 @@ import (
 // ──────────────────────────────────────────────
 
 type HeroPickRateSource struct {
-	repo profiles.Repository
+	repo  profiles.Repository
+	depth int32
 }
 
-func NewHeroPickRateSource(repo profiles.Repository) *HeroPickRateSource {
-	return &HeroPickRateSource{repo: repo}
+func NewHeroPickRateSource(repo profiles.Repository, depth int32) *HeroPickRateSource {
+	return &HeroPickRateSource{repo: repo, depth: depth}
 }
 
 func (s *HeroPickRateSource) Def() domain.FeatureDef {
@@ -30,7 +31,7 @@ func (s *HeroPickRateSource) Def() domain.FeatureDef {
 }
 
 func (s *HeroPickRateSource) Compute(ctx context.Context, st *domain.DraftState, candidates []domain.HeroID) (map[domain.HeroID]float64, error) {
-	stats, err := s.repo.GlobalHeroStatsBatch(ctx, candidates, st.Patch())
+	stats, err := s.repo.GlobalHeroStatsBatch(ctx, candidates, st.Patch(), s.depth)
 	if err != nil {
 		return nil, fmt.Errorf("hero pick rate: %w", err)
 	}
@@ -41,7 +42,7 @@ func (s *HeroPickRateSource) Compute(ctx context.Context, st *domain.DraftState,
 	// Using only candidates (~25 heroes) gives a ~80% smaller denominator than
 	// the full corpus (~124 heroes), inflating inference probabilities by ~5x
 	// and breaking the model's learned split thresholds.
-	totalPicks, err := s.repo.GlobalTotalPicks(ctx, st.Patch())
+	totalPicks, err := s.repo.GlobalTotalPicks(ctx, st.Patch(), s.depth)
 	if err != nil {
 		return nil, fmt.Errorf("hero pick rate: %w", err)
 	}
@@ -63,11 +64,12 @@ func (s *HeroPickRateSource) Compute(ctx context.Context, st *domain.DraftState,
 // ──────────────────────────────────────────────
 
 type HeroWRSource struct {
-	repo profiles.Repository
+	repo  profiles.Repository
+	depth int32
 }
 
-func NewHeroWRSource(repo profiles.Repository) *HeroWRSource {
-	return &HeroWRSource{repo: repo}
+func NewHeroWRSource(repo profiles.Repository, depth int32) *HeroWRSource {
+	return &HeroWRSource{repo: repo, depth: depth}
 }
 
 func (s *HeroWRSource) Def() domain.FeatureDef {
@@ -79,7 +81,7 @@ func (s *HeroWRSource) Def() domain.FeatureDef {
 }
 
 func (s *HeroWRSource) Compute(ctx context.Context, st *domain.DraftState, candidates []domain.HeroID) (map[domain.HeroID]float64, error) {
-	stats, err := s.repo.GlobalHeroStatsBatch(ctx, candidates, st.Patch())
+	stats, err := s.repo.GlobalHeroStatsBatch(ctx, candidates, st.Patch(), s.depth)
 	if err != nil {
 		return nil, fmt.Errorf("hero wr: %w", err)
 	}
@@ -96,11 +98,12 @@ func (s *HeroWRSource) Compute(ctx context.Context, st *domain.DraftState, candi
 // ──────────────────────────────────────────────
 
 type HeroPopularitySource struct {
-	repo profiles.Repository
+	repo  profiles.Repository
+	depth int32
 }
 
-func NewHeroPopularitySource(repo profiles.Repository) *HeroPopularitySource {
-	return &HeroPopularitySource{repo: repo}
+func NewHeroPopularitySource(repo profiles.Repository, depth int32) *HeroPopularitySource {
+	return &HeroPopularitySource{repo: repo, depth: depth}
 }
 
 func (s *HeroPopularitySource) Def() domain.FeatureDef {
@@ -112,7 +115,7 @@ func (s *HeroPopularitySource) Def() domain.FeatureDef {
 }
 
 func (s *HeroPopularitySource) Compute(ctx context.Context, st *domain.DraftState, candidates []domain.HeroID) (map[domain.HeroID]float64, error) {
-	stats, err := s.repo.GlobalHeroStatsBatch(ctx, candidates, st.Patch())
+	stats, err := s.repo.GlobalHeroStatsBatch(ctx, candidates, st.Patch(), s.depth)
 	if err != nil {
 		return nil, fmt.Errorf("hero popularity: %w", err)
 	}

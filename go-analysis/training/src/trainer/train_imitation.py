@@ -49,7 +49,10 @@ def run(settings: Settings):
 
     # ── Training candidates — features computed with train-only priors ────
     print("Generating training candidates...")
-    train_candidates = generate_candidates(train_decisions, all_heroes)
+    train_candidates = generate_candidates(
+        train_decisions, all_heroes,
+        max_negatives=settings.max_negatives,
+    )
     print("Computing training features (train-only hero priors, fresh MVs)...")
     train_candidates = compute_features(
         train_candidates, settings, raw_decisions=raw_decisions,
@@ -61,7 +64,10 @@ def run(settings: Settings):
     # Using full-corpus priors simulates production: in inference, the model
     # will query hero priors from all historical data, not just a held-out set.
     print("Generating validation candidates...")
-    val_candidates = generate_candidates(val_decisions, all_heroes)
+    val_candidates = generate_candidates(
+        val_decisions, all_heroes,
+        max_negatives=settings.max_negatives,
+    )
     print("Computing validation features (full-corpus hero priors)...")
     val_candidates = compute_features(
         val_candidates, settings, raw_decisions=raw_decisions,
@@ -181,12 +187,13 @@ def run(settings: Settings):
     }
 
     meta = {
-        "version": f"imitation-v{settings.patch_id}-{dir_ts}",
+        "version": f"imitation-v{settings.patch_id}-depth{settings.depth_patch}-{dir_ts}",
         "trained_at": iso_ts,
         "recall_at_5": -1.0,   # placeholder — evaluate.py computes this; -1.0 = not yet computed
         "ndcg_at_10": -1.0,    # placeholder — evaluate.py computes this; -1.0 = not yet computed
         "best_iter": booster.best_iteration,
         "patch_id": settings.patch_id,
+        "depth_patch": settings.depth_patch,
         "feature_importance_gain": feat_importance,
         "train_matches": len(train_match_ids),
         "val_matches": len(val_match_ids),

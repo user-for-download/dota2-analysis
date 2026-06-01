@@ -72,7 +72,7 @@ func main() {
 	// Feature registry: decouples Go source code from ML feature ordering.
 	// The ML model's spec.json drives which features are computed and in what
 	// order — no hardcoded slice, no manual reordering when the model changes.
-	featReg := features.DefaultRegistry()
+	featReg := features.DefaultRegistry(cfg.Analytics.DepthPatch)
 
 	var (
 		builder    features.Builder
@@ -89,17 +89,17 @@ func main() {
 		specData, err := os.ReadFile(filepath.Join(cfg.Analytics.ModelDir, "spec.json"))
 		if err != nil {
 			log.Warn("could not read spec.json, falling back to default order", "err", err)
-			builder = features.NewBuilder(features.DefaultSources(repo, catalog))
+			builder = features.NewBuilder(features.DefaultSources(repo, catalog, cfg.Analytics.DepthPatch))
 		} else {
 			var spec domain.FeatureSpec
 			if uErr := json.Unmarshal(specData, &spec); uErr != nil {
 				log.Warn("could not parse spec.json, falling back to default order", "err", uErr)
-				builder = features.NewBuilder(features.DefaultSources(repo, catalog))
+				builder = features.NewBuilder(features.DefaultSources(repo, catalog, cfg.Analytics.DepthPatch))
 			} else {
 				b, bErr := features.NewBuilderFromSpec(&spec, repo, catalog, featReg)
 				if bErr != nil {
 					log.Warn("could not resolve spec.json features, falling back to default order", "err", bErr)
-					builder = features.NewBuilder(features.DefaultSources(repo, catalog))
+					builder = features.NewBuilder(features.DefaultSources(repo, catalog, cfg.Analytics.DepthPatch))
 				} else {
 					builder = b
 					log.Info("feature builder configured from spec.json", "features", len(spec.Features))
@@ -121,7 +121,7 @@ func main() {
 		}
 	} else {
 		// Linear scorer path: use default feature ordering.
-		builder = features.NewBuilder(features.DefaultSources(repo, catalog))
+		builder = features.NewBuilder(features.DefaultSources(repo, catalog, cfg.Analytics.DepthPatch))
 		linearScor = linear.NewScorer(builder.Spec())
 		scorer = linearScor
 		explainer = linear.NewExplainer(linearScor)

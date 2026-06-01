@@ -64,10 +64,10 @@ func (m *mockRepository) RosterComfortAvgBatch(ctx context.Context, roster []dom
 func (m *mockRepository) StarThreatBatch(ctx context.Context, themTeamID domain.TeamID, heroes []domain.HeroID, minGames int) (map[domain.HeroID]float64, error) {
 	return nil, nil
 }
-func (m *mockRepository) GlobalHeroStatsBatch(ctx context.Context, heroes []domain.HeroID, patchID domain.PatchID) (map[domain.HeroID]profiles.GlobalHeroStats, error) {
+func (m *mockRepository) GlobalHeroStatsBatch(ctx context.Context, heroes []domain.HeroID, patchID domain.PatchID, depth int32) (map[domain.HeroID]profiles.GlobalHeroStats, error) {
 	return nil, nil
 }
-func (m *mockRepository) GlobalTotalPicks(ctx context.Context, patchID domain.PatchID) (int, error) {
+func (m *mockRepository) GlobalTotalPicks(ctx context.Context, patchID domain.PatchID, depth int32) (int, error) {
 	return 10000, nil
 }
 

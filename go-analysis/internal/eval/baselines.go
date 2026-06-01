@@ -29,14 +29,28 @@ type PickFrequencyBaseline struct {
 }
 
 // NewPickFrequencyBaseline loads hero pick frequencies for a given patch.
-func NewPickFrequencyBaseline(ctx context.Context, db *pgxpool.Pool, patchID int32) (*PickFrequencyBaseline, error) {
+// depth controls how many consecutive patches to include (ending at patchID).
+// 1 = single patch, >1 = groups multiple patches (e.g. 4 for "7.4x" grouping).
+func NewPickFrequencyBaseline(ctx context.Context, db *pgxpool.Pool, patchID int32, depth int32) (*PickFrequencyBaseline, error) {
+	var patchFilter string
+	var args []any
+	if patchID > 0 {
+		if depth > 1 {
+			patchFilter = " AND m.patch_id IN (SELECT id FROM patches WHERE id <= $1 ORDER BY id DESC LIMIT $2) AND m.leagueid > 0"
+			args = []any{patchID, depth}
+		} else {
+			patchFilter = " AND m.patch_id = $1 AND m.leagueid > 0"
+			args = []any{patchID}
+		}
+	}
+
 	rows, err := db.Query(ctx, `
 		SELECT pb.hero_id, COUNT(*) as picks
 		FROM public.picks_bans pb
 		JOIN public.matches m ON m.match_id = pb.match_id
-		WHERE pb.is_pick = true AND m.patch_id = $1 AND m.leagueid > 0
+		WHERE pb.is_pick = true`+patchFilter+`
 		GROUP BY pb.hero_id
-	`, patchID)
+	`, args...)
 	if err != nil {
 		return nil, fmt.Errorf("query pick frequencies: %w", err)
 	}
